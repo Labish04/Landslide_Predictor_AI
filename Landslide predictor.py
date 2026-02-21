@@ -128,7 +128,6 @@ class LandslidePredictor:
         soil_sand   = (soil_raw == 'sand').astype(int)
         soil_silt   = (soil_raw == 'silt').astype(int)
 
-        # Realistic-strength logit (3× scale gives good signal strength)
         logit = 3.0 * (
               0.012 * rainfall
             + 0.045 * slope
@@ -140,16 +139,12 @@ class LandslidePredictor:
             - 0.30  * soil_gravel
             - 4.50
         )
-        # Moderate logit noise (std=0.4) prevents trivial separability while
-        # preserving real signal → expected test accuracy ~75–80%
         logit += rng.normal(0, 0.4, n_samples)
 
         prob = 1 / (1 + np.exp(-logit))
-        # Original band 0.11–0.89 with 3× signal gives realistic overlap
         prob = np.clip(prob * 0.78 + 0.11, 0, 1)
         labels = (rng.uniform(0, 1, n_samples) < prob).astype(int)
 
-        # Measurement noise added AFTER labelling (realistic sensor variance)
         rainfall        += rng.normal(0, 12,   n_samples)
         slope           += rng.normal(0, 3,    n_samples)
         soil_sat        += rng.normal(0, 0.06, n_samples)
@@ -184,7 +179,6 @@ class LandslidePredictor:
 
     def load_data(self, path: str = DATASET_PATH) -> str:
         log = []
-        # Always regenerate to avoid stale data with trivially-separable labels
         log.append("  Generating fresh realistic synthetic data (noise-injected)...")
         self.df = self.generate_dataset(path=path)
 
@@ -343,43 +337,35 @@ class LandslidePredictor:
             'prediction': int(prediction),
             'prob_no'   : float(probabilities[0]),
             'prob_yes'  : float(probabilities[1]),
-            'risk_pct'  : float(risk_pct),
-            'risk_level': level,
+            'risk_pct'  : risk_pct,
+            'level'     : level,
         }
 
 
-# ══════════════════════════════════════════════════════════════════
-#  PLOTTING FUNCTIONS
-# ══════════════════════════════════════════════════════════════════
+# ──────────────────────────────────────────────
+# PLOTTING HELPERS
+# ──────────────────────────────────────────────
 
-def _save_and_show(fig, filename: str, title: str = ""):
-    path = f"{RESULTS_DIR}/{filename}"
-    fig.savefig(path, dpi=150, bbox_inches='tight')
-    win = tk.Toplevel()
-    win.title(title or filename)
-    win.configure(bg=BG_DARK)
-    canvas = FigureCanvasTkAgg(fig, master=win)
+def _save_and_show(fig, filename: str, title: str):
+    fig.savefig(f'{RESULTS_DIR}/{filename}', dpi=150, bbox_inches='tight')
+    top = tk.Toplevel()
+    top.title(title)
+    top.configure(bg=BG_DARK)
+    canvas = FigureCanvasTkAgg(fig, master=top)
     canvas.draw()
     canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
-    tk.Button(win, text="Close", command=win.destroy,
-              bg=ACCENT_BLUE, fg="white", font=("Segoe UI", 10, "bold"),
-              relief=tk.FLAT, padx=12, pady=4).pack(pady=6)
 
 
 def plot_confusion_matrix(cm, show=True):
-    fig, ax = plt.subplots(figsize=(6, 5))
+    fig, ax = plt.subplots(figsize=(5, 4))
     fig.patch.set_facecolor('#F8FAFC')
-    sns.heatmap(cm, annot=True, fmt='d', cmap='Blues', ax=ax,
-                xticklabels=['No Landslide', 'Landslide'],
-                yticklabels=['No Landslide', 'Landslide'],
-                linewidths=2, linecolor='white',
-                annot_kws={'size': 18, 'fontweight': 'bold'})
-    ax.set_title('Confusion Matrix', fontsize=15, fontweight='bold', pad=14)
-    ax.set_ylabel('Actual Label', fontsize=12)
-    ax.set_xlabel('Predicted Label', fontsize=12)
-    labels_map = {(0,0):'TN',(0,1):'FP',(1,0):'FN',(1,1):'TP'}
-    for (r, c), lbl in labels_map.items():
-        ax.text(c+0.5, r+0.75, lbl, ha='center', va='center', fontsize=9, color='grey', style='italic')
+    sns.heatmap(cm, annot=True, fmt='d', cmap='Blues',
+                xticklabels=['No Slide','Slide'],
+                yticklabels=['No Slide','Slide'], ax=ax,
+                linewidths=0.5, linecolor='white',
+                annot_kws={'size': 14, 'weight': 'bold'})
+    ax.set_title('Confusion Matrix', fontweight='bold', fontsize=13)
+    ax.set_ylabel('Actual'); ax.set_xlabel('Predicted')
     plt.tight_layout()
     if show:
         _save_and_show(fig, 'confusion_matrix.png', 'Confusion Matrix')
@@ -389,17 +375,14 @@ def plot_confusion_matrix(cm, show=True):
 
 
 def plot_roc_curve(fpr, tpr, roc_auc, show=True):
-    fig, ax = plt.subplots(figsize=(6, 5))
-    fig.patch.set_facecolor('#F8FAFC')
-    ax.plot(fpr, tpr, color='#2563EB', lw=2.5, label=f'Random Forest (AUC = {roc_auc:.3f})')
-    ax.plot([0,1],[0,1],'k--', lw=1, label='Random (AUC = 0.500)')
+    fig, ax = plt.subplots(figsize=(5, 4))
+    ax.plot(fpr, tpr, color='#2563EB', lw=2.5, label=f'AUC = {roc_auc:.3f}')
+    ax.plot([0,1],[0,1],'k--', lw=1)
     ax.fill_between(fpr, tpr, alpha=0.12, color='#2563EB')
-    ax.set_xlabel('False Positive Rate', fontsize=12)
-    ax.set_ylabel('True Positive Rate', fontsize=12)
-    ax.set_title('ROC Curve', fontsize=15, fontweight='bold')
-    ax.legend(loc='lower right', fontsize=10)
+    ax.set_title('ROC Curve', fontweight='bold', fontsize=13)
+    ax.set_xlabel('False Positive Rate'); ax.set_ylabel('True Positive Rate')
+    ax.legend(loc='lower right')
     ax.grid(alpha=0.3)
-    ax.spines['top'].set_visible(False); ax.spines['right'].set_visible(False)
     plt.tight_layout()
     if show:
         _save_and_show(fig, 'roc_curve.png', 'ROC Curve')
@@ -408,71 +391,60 @@ def plot_roc_curve(fpr, tpr, roc_auc, show=True):
         plt.close(fig)
 
 
-def plot_feature_importance(importances, show=True):
+def plot_feature_importance(importances: dict, show=True):
+    fig, ax = plt.subplots(figsize=(7, 4))
     series = pd.Series(importances).sort_values()
     colors = ['#EF4444' if v > 0.12 else '#F59E0B' if v > 0.08 else '#3B82F6' for v in series.values]
-    fig, ax = plt.subplots(figsize=(8, 6))
-    fig.patch.set_facecolor('#F8FAFC')
-    bars = ax.barh(series.index, series.values, color=colors, edgecolor='white', height=0.7)
-    for bar, val in zip(bars, series.values):
-        ax.text(val+0.002, bar.get_y()+bar.get_height()/2, f'{val:.4f}', va='center', fontsize=9)
-    ax.set_xlabel('Importance Score', fontsize=12)
-    ax.set_title('Feature Importances\n(Red = High, Orange = Medium, Blue = Low)', fontsize=13, fontweight='bold')
-    ax.set_yticklabels([l.replace('_',' ') for l in series.index], fontsize=10)
+    ax.barh(series.index, series.values, color=colors, edgecolor='white', height=0.65)
+    ax.set_xlabel('Importance Score')
+    ax.set_title('Feature Importances', fontweight='bold', fontsize=13)
+    ax.set_yticklabels([l.replace('_', ' ') for l in series.index])
     ax.grid(axis='x', alpha=0.3)
-    ax.spines['top'].set_visible(False); ax.spines['right'].set_visible(False)
     plt.tight_layout()
     if show:
-        _save_and_show(fig, 'feature_importance.png', 'Feature Importances')
+        _save_and_show(fig, 'feature_importance.png', 'Feature Importance')
     else:
         fig.savefig(f'{RESULTS_DIR}/feature_importance.png', dpi=150, bbox_inches='tight')
         plt.close(fig)
 
 
 def plot_train_test_comparison(train_acc, test_acc, show=True):
-    fig, ax = plt.subplots(figsize=(5, 5))
-    fig.patch.set_facecolor('#F8FAFC')
-    bars = ax.bar(['Train', 'Test'], [train_acc*100, test_acc*100],
-                  color=['#22C55E','#3B82F6'], width=0.4, edgecolor='white')
+    fig, ax = plt.subplots(figsize=(4, 4))
+    bars = ax.bar(['Train', 'Test'], [train_acc * 100, test_acc * 100],
+                  color=['#22C55E', '#3B82F6'], width=0.45, edgecolor='white')
     for bar, val in zip(bars, [train_acc, test_acc]):
-        ax.text(bar.get_x()+bar.get_width()/2, bar.get_height()+0.5,
-                f'{val*100:.1f}%', ha='center', va='bottom', fontweight='bold', fontsize=13)
+        ax.text(bar.get_x() + bar.get_width() / 2, bar.get_height() + 0.5,
+                f'{val * 100:.1f}%', ha='center', fontweight='bold', fontsize=12)
     ax.set_ylim(50, 108)
-    ax.set_ylabel('Accuracy (%)', fontsize=12)
-    ax.set_title('Train vs Test Accuracy\n(Small gap = good generalisation)', fontweight='bold')
-    ax.axhline(100, color='red', linestyle='--', lw=1.5, alpha=0.5, label='100% (suspicious)')
-    ax.legend(fontsize=9)
+    ax.set_ylabel('Accuracy (%)')
+    ax.set_title('Train vs Test Accuracy', fontweight='bold', fontsize=13)
     ax.grid(axis='y', alpha=0.3)
-    ax.spines['top'].set_visible(False); ax.spines['right'].set_visible(False)
     plt.tight_layout()
     if show:
-        _save_and_show(fig, 'train_test_comparison.png', 'Train vs Test Accuracy')
+        _save_and_show(fig, 'train_test_comparison.png', 'Train vs Test')
     else:
         fig.savefig(f'{RESULTS_DIR}/train_test_comparison.png', dpi=150, bbox_inches='tight')
         plt.close(fig)
 
 
-def plot_model_comparison(comparison, show=True):
+def plot_model_comparison(comparison: dict, show=True):
+    if not comparison:
+        return
     names = list(comparison.keys())
-    accs  = [comparison[n]['accuracy']*100 for n in names]
-    f1s   = [comparison[n]['f1']*100       for n in names]
-    aucs  = [comparison[n]['roc_auc']*100  for n in names]
-    x = np.arange(len(names)); w = 0.25
-    fig, ax = plt.subplots(figsize=(10, 5))
-    fig.patch.set_facecolor('#F8FAFC')
-    b1 = ax.bar(x-w, accs, w, label='Accuracy (%)', color='#3B82F6', alpha=0.9)
-    b2 = ax.bar(x,   f1s,  w, label='F1 × 100',    color='#22C55E', alpha=0.9)
-    b3 = ax.bar(x+w, aucs, w, label='AUC × 100',   color='#F59E0B', alpha=0.9)
-    for bars in [b1, b2, b3]:
-        for bar in bars:
-            ax.text(bar.get_x()+bar.get_width()/2, bar.get_height()+0.4,
-                    f'{bar.get_height():.1f}', ha='center', va='bottom', fontsize=8)
-    ax.set_xticks(x); ax.set_xticklabels(names, rotation=10, ha='right', fontsize=11)
-    ax.set_ylabel('Score', fontsize=12)
-    ax.set_title('Model Comparison — Accuracy / F1 / AUC', fontweight='bold', fontsize=14)
-    ax.legend(fontsize=10); ax.set_ylim(0, 110)
-    ax.grid(axis='y', alpha=0.3)
-    ax.spines['top'].set_visible(False); ax.spines['right'].set_visible(False)
+    accs  = [comparison[n]['accuracy'] * 100 for n in names]
+    f1s   = [comparison[n]['f1'] * 100 for n in names]
+    aucs  = [comparison[n]['roc_auc'] * 100 for n in names]
+
+    x = np.arange(len(names))
+    fig, ax = plt.subplots(figsize=(8, 4))
+    w = 0.25
+    ax.bar(x - w, accs, w, label='Accuracy', color='#3B82F6', edgecolor='white')
+    ax.bar(x,     f1s,  w, label='F1 (macro)', color='#22C55E', edgecolor='white')
+    ax.bar(x + w, aucs, w, label='ROC-AUC', color='#F59E0B', edgecolor='white')
+    ax.set_xticks(x); ax.set_xticklabels(names, fontsize=9)
+    ax.set_ylim(50, 105); ax.set_ylabel('Score (%)')
+    ax.set_title('Model Comparison', fontweight='bold', fontsize=13)
+    ax.legend(); ax.grid(axis='y', alpha=0.3)
     plt.tight_layout()
     if show:
         _save_and_show(fig, 'model_comparison.png', 'Model Comparison')
@@ -482,21 +454,15 @@ def plot_model_comparison(comparison, show=True):
 
 
 def plot_class_distribution(df, show=True):
+    fig, ax = plt.subplots(figsize=(4, 3))
     counts = df[TARGET_COLUMN].value_counts().sort_index()
-    fig, axes = plt.subplots(1, 2, figsize=(10, 4))
-    fig.patch.set_facecolor('#F8FAFC')
-    fig.suptitle('Dataset Class Distribution', fontsize=14, fontweight='bold')
-    axes[0].bar(['No Landslide','Landslide'], counts.values,
-                color=['#3B82F6','#EF4444'], edgecolor='white', width=0.5)
+    ax.bar(['No Landslide (0)', 'Landslide (1)'], counts.values,
+           color=['#22C55E', '#EF4444'], edgecolor='white')
     for i, v in enumerate(counts.values):
-        axes[0].text(i, v+5, str(v), ha='center', fontweight='bold', fontsize=12)
-    axes[0].set_ylabel('Count'); axes[0].set_title('Sample Counts')
-    axes[0].grid(axis='y', alpha=0.3)
-    axes[0].spines['top'].set_visible(False); axes[0].spines['right'].set_visible(False)
-    axes[1].pie(counts.values, labels=['No Landslide','Landslide'],
-                colors=['#3B82F6','#EF4444'], autopct='%1.1f%%',
-                startangle=90, textprops={'fontsize':11})
-    axes[1].set_title('Class Proportions')
+        ax.text(i, v + 5, str(v), ha='center', fontweight='bold')
+    ax.set_title('Class Distribution', fontweight='bold', fontsize=13)
+    ax.set_ylabel('Count')
+    ax.grid(axis='y', alpha=0.3)
     plt.tight_layout()
     if show:
         _save_and_show(fig, 'class_distribution.png', 'Class Distribution')
@@ -506,58 +472,61 @@ def plot_class_distribution(df, show=True):
 
 
 def plot_all_metrics_dashboard(predictor, show=True):
-    m = predictor.metrics
-    fig = plt.figure(figsize=(16, 10))
-    fig.patch.set_facecolor('#F8FAFC')
-    fig.suptitle('Landslide Prediction — Evaluation Dashboard', fontsize=16, fontweight='bold', y=0.98)
-    gs = gridspec.GridSpec(2, 3, figure=fig, hspace=0.4, wspace=0.38)
+    m   = predictor.metrics
+    fig = plt.figure(figsize=(16, 8))
+    fig.suptitle('Landslide Prediction — Evaluation Dashboard',
+                 fontsize=15, fontweight='bold', y=0.98)
+    gs = gridspec.GridSpec(2, 3, figure=fig, hspace=0.45, wspace=0.38)
 
-    ax1 = fig.add_subplot(gs[0,0])
-    sns.heatmap(m.confusion_mat, annot=True, fmt='d', cmap='Blues', ax=ax1,
-                xticklabels=['No LS','LS'], yticklabels=['No LS','LS'],
-                linewidths=1.5, annot_kws={'size':16,'fontweight':'bold'})
+    ax1 = fig.add_subplot(gs[0, 0])
+    sns.heatmap(m.confusion_mat, annot=True, fmt='d', cmap='Blues',
+                xticklabels=['No Slide', 'Slide'],
+                yticklabels=['No Slide', 'Slide'], ax=ax1,
+                linewidths=0.5, linecolor='white',
+                annot_kws={'size': 13, 'weight': 'bold'})
     ax1.set_title('Confusion Matrix', fontweight='bold')
     ax1.set_ylabel('Actual'); ax1.set_xlabel('Predicted')
 
-    ax2 = fig.add_subplot(gs[0,1])
+    ax2 = fig.add_subplot(gs[0, 1])
     ax2.plot(m.fpr, m.tpr, color='#2563EB', lw=2.5, label=f'AUC = {m.roc_auc:.3f}')
-    ax2.plot([0,1],[0,1],'k--', lw=1)
+    ax2.plot([0, 1], [0, 1], 'k--', lw=1)
     ax2.fill_between(m.fpr, m.tpr, alpha=0.12, color='#2563EB')
     ax2.set_title('ROC Curve', fontweight='bold')
     ax2.set_xlabel('FPR'); ax2.set_ylabel('TPR')
     ax2.legend(loc='lower right', fontsize=9)
-    ax2.grid(alpha=0.3); ax2.spines['top'].set_visible(False); ax2.spines['right'].set_visible(False)
+    ax2.grid(alpha=0.3)
 
-    ax3 = fig.add_subplot(gs[0,2])
-    bars = ax3.bar(['Train','Test'], [m.train_accuracy*100, m.accuracy*100],
-                   color=['#22C55E','#3B82F6'], width=0.45, edgecolor='white')
+    ax3 = fig.add_subplot(gs[0, 2])
+    bars = ax3.bar(['Train', 'Test'], [m.train_accuracy * 100, m.accuracy * 100],
+                   color=['#22C55E', '#3B82F6'], width=0.45, edgecolor='white')
     for bar, val in zip(bars, [m.train_accuracy, m.accuracy]):
-        ax3.text(bar.get_x()+bar.get_width()/2, bar.get_height()+0.5,
-                 f'{val*100:.1f}%', ha='center', fontweight='bold', fontsize=12)
+        ax3.text(bar.get_x() + bar.get_width() / 2, bar.get_height() + 0.5,
+                 f'{val * 100:.1f}%', ha='center', fontweight='bold', fontsize=12)
     ax3.set_ylim(50, 108); ax3.set_ylabel('Accuracy (%)')
     ax3.set_title('Train vs Test', fontweight='bold')
-    ax3.grid(axis='y', alpha=0.3); ax3.spines['top'].set_visible(False); ax3.spines['right'].set_visible(False)
+    ax3.grid(axis='y', alpha=0.3)
 
     ax4 = fig.add_subplot(gs[1, 0:2])
     series = pd.Series(m.feature_importances).sort_values()
-    colors = ['#EF4444' if v>0.12 else '#F59E0B' if v>0.08 else '#3B82F6' for v in series.values]
+    colors = ['#EF4444' if v > 0.12 else '#F59E0B' if v > 0.08 else '#3B82F6' for v in series.values]
     ax4.barh(series.index, series.values, color=colors, edgecolor='white', height=0.65)
     ax4.set_xlabel('Importance Score'); ax4.set_title('Feature Importances', fontweight='bold')
-    ax4.set_yticklabels([l.replace('_',' ') for l in series.index], fontsize=9)
-    ax4.grid(axis='x', alpha=0.3); ax4.spines['top'].set_visible(False); ax4.spines['right'].set_visible(False)
+    ax4.set_yticklabels([l.replace('_', ' ') for l in series.index], fontsize=9)
+    ax4.grid(axis='x', alpha=0.3)
 
-    ax5 = fig.add_subplot(gs[1,2])
-    metric_names = ['Accuracy','F1-Score','Precision','Recall','ROC-AUC','CV Mean']
+    ax5 = fig.add_subplot(gs[1, 2])
+    metric_names = ['Accuracy', 'F1-Score', 'Precision', 'Recall', 'ROC-AUC', 'CV Mean']
     metric_vals  = [m.accuracy, m.f1, m.precision, m.recall, m.roc_auc, m.cv_mean]
-    bar_colors   = ['#3B82F6','#22C55E','#F59E0B','#A855F7','#EF4444','#0EA5E9']
-    b = ax5.barh(metric_names, [v*100 for v in metric_vals], color=bar_colors, edgecolor='white', height=0.6)
+    bar_colors   = ['#3B82F6', '#22C55E', '#F59E0B', '#A855F7', '#EF4444', '#0EA5E9']
+    b = ax5.barh(metric_names, [v * 100 for v in metric_vals], color=bar_colors, edgecolor='white', height=0.6)
     for bar, val in zip(b, metric_vals):
-        ax5.text(val*100+0.5, bar.get_y()+bar.get_height()/2, f'{val:.4f}', va='center', fontsize=9)
+        ax5.text(val * 100 + 0.5, bar.get_y() + bar.get_height() / 2,
+                 f'{val:.4f}', va='center', fontsize=9)
     ax5.set_xlim(0, 110); ax5.set_xlabel('Score (%)')
     ax5.set_title('All Metrics', fontweight='bold')
-    ax5.grid(axis='x', alpha=0.3); ax5.spines['top'].set_visible(False); ax5.spines['right'].set_visible(False)
+    ax5.grid(axis='x', alpha=0.3)
 
-    plt.tight_layout(rect=[0,0,1,0.96])
+    plt.tight_layout(rect=[0, 0, 1, 0.96])
     if show:
         _save_and_show(fig, 'evaluation_dashboard.png', 'Evaluation Dashboard')
     else:
@@ -566,20 +535,20 @@ def plot_all_metrics_dashboard(predictor, show=True):
 
 
 # ══════════════════════════════════════════════════════════════════
-#  GUI — Modern Dark Sci-Fi UI with Animations
+#  GUI
 # ══════════════════════════════════════════════════════════════════
 
 FEATURE_HINTS = {
     'Rainfall_mm'        : 'mm  (50–300)',
     'Slope_Angle'        : '°   (5–65)',
-    'Soil_Saturation'    : '    (0.0–1.0)',
-    'Vegetation_Cover'   : '    (0.0–1.0)',
+    'Soil_Saturation'    : '(0.0–1.0)',
+    'Vegetation_Cover'   : '(0.0–1.0)',
     'Earthquake_Activity': 'M   (0–9)',
     'Proximity_to_Water' : 'km  (0–10)',
-    'Soil_Type_Gravel'   : '    1=Yes  0=No',
-    'Soil_Type_Sand'     : '    1=Yes  0=No',
-    'Soil_Type_Silt'     : '    1=Yes  0=No',
-    'Random_Noise'       : '    0.0–1.0',
+    'Soil_Type_Gravel'   : None,   # Toggle — no hint needed
+    'Soil_Type_Sand'     : None,
+    'Soil_Type_Silt'     : None,
+    'Random_Noise'       : '(0.0–1.0)',
 }
 
 FEATURE_DEFAULTS = {
@@ -595,6 +564,16 @@ FEATURE_DEFAULTS = {
     'Random_Noise'       : '0.5',
 }
 
+FEATURE_RANGES = {
+    'Rainfall_mm'        : (50,  300, 1.0),
+    'Slope_Angle'        : (5,   65,  0.5),
+    'Soil_Saturation'    : (0.0, 1.0, 0.01),
+    'Vegetation_Cover'   : (0.0, 1.0, 0.01),
+    'Earthquake_Activity': (0,   9,   0.1),
+    'Proximity_to_Water' : (0,   10,  0.1),
+    'Random_Noise'       : (0.0, 1.0, 0.01),
+}
+
 FEATURE_ICONS = {
     'Rainfall_mm'        : '🌧',
     'Slope_Angle'        : '⛰',
@@ -608,11 +587,14 @@ FEATURE_ICONS = {
     'Random_Noise'       : '🎲',
 }
 
+# Binary features rendered as toggles
+BINARY_FEATURES = {'Soil_Type_Gravel', 'Soil_Type_Sand', 'Soil_Type_Silt'}
 
-# ─── Reusable animated widgets ──────────────────────────────────
+
+# ─── Reusable widgets ────────────────────────────────────────────
 
 class AnimatedButton(tk.Canvas):
-    """Custom button with hover glow + click ripple animation."""
+    """Custom button with hover glow + click animation."""
     def __init__(self, parent, text, command, color=ACCENT_BLUE,
                  width=180, height=40, font_size=10, **kwargs):
         super().__init__(parent, width=width, height=height,
@@ -633,25 +615,20 @@ class AnimatedButton(tk.Canvas):
         self.delete("all")
         r = 8
         w, h = self.w, self.h
-        glow_clr = self.color
-
         if press:
             fill = self.color
             outline_w = 2
         elif hover:
             fill = self._lighten(self.color, 0.25)
             outline_w = 2
-            # glow rings
             for i in range(3):
-                self._round_rect(i*2, i*2, w-i*2, h-i*2,
-                                 r+i, outline=self.color,
-                                 fill='', width=1, stipple='')
+                self._round_rect(i * 2, i * 2, w - i * 2, h - i * 2,
+                                 r + i, outline=self.color, fill='', width=1)
         else:
             fill = self._darken(self.color, 0.35)
             outline_w = 1
-
-        self._round_rect(2, 2, w-2, h-2, r, fill=fill, outline=self.color, width=outline_w)
-        self.create_text(w//2, h//2, text=self.text, fill="white",
+        self._round_rect(2, 2, w - 2, h - 2, r, fill=fill, outline=self.color, width=outline_w)
+        self.create_text(w // 2, h // 2, text=self.text, fill="white",
                          font=("Segoe UI", self.font_sz, "bold"))
 
     def _round_rect(self, x1, y1, x2, y2, r, **kw):
@@ -660,27 +637,15 @@ class AnimatedButton(tk.Canvas):
         return self.create_polygon(pts, smooth=True, **kw)
 
     def _lighten(self, hex_clr, factor):
-        r,g,b = int(hex_clr[1:3],16), int(hex_clr[3:5],16), int(hex_clr[5:7],16)
-        r = min(255, int(r + (255-r)*factor))
-        g = min(255, int(g + (255-g)*factor))
-        b = min(255, int(b + (255-b)*factor))
-        return f'#{r:02x}{g:02x}{b:02x}'
+        r, g, b = int(hex_clr[1:3], 16), int(hex_clr[3:5], 16), int(hex_clr[5:7], 16)
+        return f'#{min(255,int(r+(255-r)*factor)):02x}{min(255,int(g+(255-g)*factor)):02x}{min(255,int(b+(255-b)*factor)):02x}'
 
     def _darken(self, hex_clr, factor):
-        r,g,b = int(hex_clr[1:3],16), int(hex_clr[3:5],16), int(hex_clr[5:7],16)
-        r = max(0, int(r*(1-factor)))
-        g = max(0, int(g*(1-factor)))
-        b = max(0, int(b*(1-factor)))
-        return f'#{r:02x}{g:02x}{b:02x}'
+        r, g, b = int(hex_clr[1:3], 16), int(hex_clr[3:5], 16), int(hex_clr[5:7], 16)
+        return f'#{max(0,int(r*(1-factor))):02x}{max(0,int(g*(1-factor))):02x}{max(0,int(b*(1-factor))):02x}'
 
-    def _on_enter(self, e):
-        self._hovered = True
-        self._draw(hover=True)
-
-    def _on_leave(self, e):
-        self._hovered = False
-        self._draw(hover=False)
-
+    def _on_enter(self, e):  self._hovered = True;  self._draw(hover=True)
+    def _on_leave(self, e):  self._hovered = False; self._draw(hover=False)
     def _on_click(self, e):
         self._draw(press=True)
         self.after(120, lambda: self._draw(hover=self._hovered))
@@ -688,10 +653,39 @@ class AnimatedButton(tk.Canvas):
             self.after(80, self.command)
 
 
+class ToggleButton(tk.Frame):
+    """
+    A YES / NO pill toggle.  Stores value as tk.IntVar (1=YES, 0=NO).
+    """
+    def __init__(self, parent, variable: tk.IntVar, **kwargs):
+        super().__init__(parent, bg=parent.cget('bg'), **kwargs)
+        self._var = variable
+        self._btn = tk.Button(
+            self, text="", width=8, relief=tk.FLAT,
+            font=("Segoe UI", 9, "bold"), cursor="hand2",
+            bd=0, activeforeground="white",
+            command=self._toggle
+        )
+        self._btn.pack()
+        self._refresh()
+
+    def _toggle(self):
+        self._var.set(1 - self._var.get())
+        self._refresh()
+
+    def _refresh(self):
+        if self._var.get():
+            self._btn.config(text="  YES  ", bg=ACCENT_GREEN,
+                             fg="#001A00", activebackground=ACCENT_GREEN)
+        else:
+            self._btn.config(text="  NO  ", bg=BG_SURFACE,
+                             fg=TXT_SECONDARY, activebackground=BG_SURFACE)
+
+
 class PulsingDot(tk.Canvas):
     """Animated pulsing status indicator dot."""
     def __init__(self, parent, color=ACCENT_GREEN, size=12, **kwargs):
-        super().__init__(parent, width=size+8, height=size+8,
+        super().__init__(parent, width=size + 8, height=size + 8,
                          bg=parent.cget('bg'), highlightthickness=0, **kwargs)
         self.color  = color
         self.size   = size
@@ -701,201 +695,139 @@ class PulsingDot(tk.Canvas):
     def _animate(self):
         self.delete("all")
         s   = self.size
-        pad = 4
-        # outer pulse ring
-        scale = 0.6 + 0.4 * abs(math.sin(self._phase))
-        ring_r = (s//2) * (1 + scale * 0.5)
-        cx = pad + s//2; cy = pad + s//2
-        alpha_hex = hex(int(80 * (1 - abs(math.sin(self._phase)))))[2:].zfill(2)
-        self.create_oval(cx-ring_r, cy-ring_r, cx+ring_r, cy+ring_r,
-                         outline=self.color, width=1, fill='')
-        # solid dot
-        self.create_oval(cx-s//2, cy-s//2, cx+s//2, cy+s//2,
-                         fill=self.color, outline='')
+        off = 4
+        alpha_factor = (math.sin(self._phase) + 1) / 2
+        r, g, b = int(self.color[1:3], 16), int(self.color[3:5], 16), int(self.color[5:7], 16)
+        dim_r = max(0, int(r * (0.3 + 0.7 * alpha_factor)))
+        dim_g = max(0, int(g * (0.3 + 0.7 * alpha_factor)))
+        dim_b = max(0, int(b * (0.3 + 0.7 * alpha_factor)))
+        pulse_clr = f'#{dim_r:02x}{dim_g:02x}{dim_b:02x}'
+        self.create_oval(off, off, off + s, off + s, fill=pulse_clr, outline='')
         self._phase += 0.15
         self.after(50, self._animate)
 
-    def set_color(self, color):
+    def set_color(self, color: str):
         self.color = color
-
-
-class ScanlineCanvas(tk.Canvas):
-    """Animated scanline/grid background effect."""
-    def __init__(self, parent, **kwargs):
-        super().__init__(parent, **kwargs)
-        self._offset = 0
-        self._animate()
-
-    def _animate(self):
-        self.delete("scanlines")
-        w = self.winfo_width() or 800
-        h = self.winfo_height() or 400
-        for y in range(self._offset, h + 30, 30):
-            self.create_line(0, y, w, y, fill="#0D1526", width=1, tags="scanlines")
-        self._offset = (self._offset + 1) % 30
-        self.after(80, self._animate)
-
-
-class GlowLabel(tk.Canvas):
-    """Label with animated glow effect."""
-    def __init__(self, parent, text, color=ACCENT_CYAN, font=("Segoe UI", 24, "bold"),
-                 width=600, height=60, **kwargs):
-        super().__init__(parent, width=width, height=height,
-                         bg=parent.cget('bg'), highlightthickness=0, **kwargs)
-        self.text  = text
-        self.color = color
-        self.font  = font
-        self._ph   = 0
-        self._animate()
-
-    def _animate(self):
-        self.delete("all")
-        intensity = int(160 + 80 * abs(math.sin(self._ph)))
-        glow_col  = f'#{intensity:02x}{intensity:02x}ff'
-        w = self.winfo_width() or 600
-        h = self.winfo_height() or 60
-        # shadow layers
-        for off in [3, 2, 1]:
-            self.create_text(w//2+off, h//2+off, text=self.text,
-                             font=self.font, fill="#000020")
-        self.create_text(w//2, h//2, text=self.text, font=self.font, fill=self.color)
-        self._ph += 0.04
-        self.after(50, self._animate)
 
 
 class RiskMeter(tk.Canvas):
-    """Animated arc-style risk gauge."""
-    def __init__(self, parent, width=300, height=170, **kwargs):
+    """Semicircular risk gauge."""
+    def __init__(self, parent, width=280, height=160, **kwargs):
         super().__init__(parent, width=width, height=height,
                          bg=BG_CARD, highlightthickness=0, **kwargs)
-        self._current = 0
-        self._target  = 0
+        self._value   = 0.0
+        self._target  = 0.0
         self._animating = False
+        self._draw_static()
 
-    def set_risk(self, pct):
-        self._target = pct
-        if not self._animating:
-            self._animate_to_target()
-
-    def _animate_to_target(self):
-        self._animating = True
-        diff = self._target - self._current
-        if abs(diff) < 0.5:
-            self._current = self._target
-            self._draw(self._current)
-            self._animating = False
-            return
-        self._current += diff * 0.12
-        self._draw(self._current)
-        self.after(16, self._animate_to_target)
-
-    def _draw(self, pct):
+    def _draw_static(self):
         self.delete("all")
-        w = self.winfo_width() or 300
-        h = self.winfo_height() or 170
-        cx = w // 2
-        cy = h - 20
-        r  = min(cx - 20, h - 30)
+        cx, cy, r = self.winfo_reqwidth() // 2, self.winfo_reqheight() - 20, 110
+        # Background arc
+        self.create_arc(cx - r, cy - r, cx + r, cy + r,
+                        start=0, extent=180, style=tk.ARC,
+                        outline=BG_SURFACE, width=22)
+        # Colored segments
+        segs = [(0, 60, ACCENT_GREEN), (60, 54, ACCENT_AMBER), (114, 66, ACCENT_RED)]
+        for start_deg, span, clr in segs:
+            self.create_arc(cx - r, cy - r, cx + r, cy + r,
+                            start=start_deg, extent=span, style=tk.ARC,
+                            outline=clr, width=10)
+        self._cx = cx; self._cy = cy; self._r = r
+        self._draw_needle(0.0)
+        self._draw_labels()
 
-        # Track arc
-        self.create_arc(cx-r, cy-r, cx+r, cy+r,
-                        start=0, extent=180, style='arc',
-                        outline=BG_SURFACE, width=18)
-
-        # Coloured fill arc
-        if pct >= 70:
-            col = ACCENT_RED
-        elif pct >= 40:
-            col = ACCENT_AMBER
-        else:
-            col = ACCENT_GREEN
-
-        filled_deg = (pct / 100) * 180
-        if filled_deg > 0:
-            self.create_arc(cx-r, cy-r, cx+r, cy+r,
-                            start=180, extent=filled_deg, style='arc',
-                            outline=col, width=18)
-
-        # Needle
-        angle_deg = 180 - filled_deg
+    def _draw_needle(self, pct):
+        cx, cy, r = self._cx, self._cy, self._r
+        angle_deg = 180 - pct * 180
         angle_rad = math.radians(angle_deg)
-        nx = cx + (r - 10) * math.cos(angle_rad)
-        ny = cy - (r - 10) * math.sin(angle_rad)
-        self.create_line(cx, cy, nx, ny, fill="white", width=3)
-        self.create_oval(cx-5, cy-5, cx+5, cy+5, fill=col, outline='')
+        nx = cx + (r - 18) * math.cos(angle_rad)
+        ny = cy - (r - 18) * math.sin(angle_rad)
+        self.delete("needle")
+        self.create_line(cx, cy, nx, ny, fill=TXT_PRIMARY, width=3, tags="needle")
+        self.create_oval(cx - 6, cy - 6, cx + 6, cy + 6,
+                         fill=TXT_SECONDARY, outline='', tags="needle")
+        # Percentage text
+        self.delete("pct_text")
+        self.create_text(cx, cy - 30, text=f"{pct*100:.1f}%",
+                         fill=TXT_PRIMARY, font=("Courier", 13, "bold"),
+                         tags="pct_text")
 
-        # Label
-        self.create_text(cx, cy-r//2-10, text=f"{pct:.1f}%",
-                         fill=col, font=("Segoe UI", 18, "bold"))
-        self.create_text(cx, cy+12, text="RISK LEVEL",
-                         fill=TXT_SECONDARY, font=("Segoe UI", 8))
+    def _draw_labels(self):
+        cx, cy, r = self._cx, self._cy, self._r
+        for label, angle in [("LOW", 160), ("MED", 90), ("HIGH", 20)]:
+            rad = math.radians(angle)
+            lx = cx + (r + 14) * math.cos(rad)
+            ly = cy - (r + 14) * math.sin(rad)
+            self.create_text(lx, ly, text=label, fill=TXT_MUTED,
+                             font=("Courier", 7, "bold"))
 
-        # Scale labels
-        for deg, label in [(180,"0"), (135,"25"), (90,"50"), (45,"75"), (0,"100")]:
-            rad = math.radians(deg)
-            lx = cx + (r+14) * math.cos(rad)
-            ly = cy - (r+14) * math.sin(rad)
-            self.create_text(lx, ly, text=label, fill=TXT_MUTED, font=("Courier", 7))
+    def animate_to(self, target_pct: float):
+        self._target = max(0.0, min(1.0, target_pct))
+        if not self._animating:
+            self._animating = True
+            self._step()
+
+    def _step(self):
+        diff = self._target - self._value
+        if abs(diff) < 0.005:
+            self._value = self._target
+            self._animating = False
+            self._draw_needle(self._value)
+            return
+        self._value += diff * 0.12
+        self._draw_needle(self._value)
+        self.after(16, self._step)
 
 
-# ── Main App ─────────────────────────────────────────────────────
+# ─── Main App ────────────────────────────────────────────────────
 
 class LandslideApp(tk.Tk):
     def __init__(self):
         super().__init__()
-        self.predictor   = LandslidePredictor()
-        self.title("⛰  Landslide AI — Disaster Risk Prediction System")
-        self.geometry("1300x880")
+        self.title("Landslide AI — Disaster Risk Prediction System")
+        self.geometry("1200x750")
+        self.minsize(960, 600)
         self.configure(bg=BG_DARK)
-        self.minsize(1100, 760)
-        self.resizable(True, True)
-        self._build_ui()
 
-    def _build_ui(self):
+        self.predictor = LandslidePredictor()
         self._build_header()
-        self._build_notebook()
+        self._build_tabs()
 
     # ── Header ─────────────────────────────────────────────────────
     def _build_header(self):
-        hdr = tk.Frame(self, bg=BG_CARD, height=80)
+        hdr = tk.Frame(self, bg=BG_CARD, height=64)
         hdr.pack(fill=tk.X)
         hdr.pack_propagate(False)
 
-        # left: title
         left = tk.Frame(hdr, bg=BG_CARD)
-        left.pack(side=tk.LEFT, padx=24, pady=10)
+        left.pack(side=tk.LEFT, padx=20, pady=8)
 
-        title_lbl = tk.Label(left, text="⛰  LANDSLIDE PREDICTION AI",
-                             bg=BG_CARD, fg=ACCENT_CYAN,
-                             font=("Courier", 18, "bold"))
-        title_lbl.pack(anchor='w')
+        tk.Label(left, text="🏔  LANDSLIDE PREDICTION AI",
+                 bg=BG_CARD, fg=ACCENT_CYAN,
+                 font=("Courier", 16, "bold")).pack(anchor='w')
         tk.Label(left, text="Environmental Disaster Risk Assessment  •  Random Forest ML",
-                 bg=BG_CARD, fg=TXT_SECONDARY,
-                 font=("Segoe UI", 10)).pack(anchor='w')
+                 bg=BG_CARD, fg=TXT_MUTED,
+                 font=("Segoe UI", 9)).pack(anchor='w')
 
-        # right: status dot + text
         right = tk.Frame(hdr, bg=BG_CARD)
-        right.pack(side=tk.RIGHT, padx=24)
-        self._status_dot = PulsingDot(right, color=ACCENT_AMBER)
-        self._status_dot.pack(side=tk.LEFT)
+        right.pack(side=tk.RIGHT, padx=20)
+        self._dot = PulsingDot(right, color=ACCENT_AMBER, size=10)
+        self._dot.pack(side=tk.LEFT, padx=(0, 6))
         self._status_lbl = tk.Label(right, text="IDLE — Awaiting pipeline run",
-                                    bg=BG_CARD, fg=TXT_SECONDARY,
-                                    font=("Courier", 10))
-        self._status_lbl.pack(side=tk.LEFT, padx=6)
+                                    bg=BG_CARD, fg=ACCENT_AMBER,
+                                    font=("Courier", 9, "bold"))
+        self._status_lbl.pack(side=tk.LEFT)
 
-        # accent divider line
-        tk.Frame(self, bg=ACCENT_CYAN, height=2).pack(fill=tk.X)
-
-    def _set_status(self, text, color=ACCENT_GREEN):
+    def _set_status(self, text: str, color: str = ACCENT_GREEN):
         self._status_lbl.config(text=text, fg=color)
-        self._status_dot.set_color(color)
+        self._dot.set_color(color)
 
-    # ── Notebook ───────────────────────────────────────────────────
-    def _build_notebook(self):
-        style = ttk.Style(self)
-        style.theme_use('clam')
-        style.configure('Dark.TNotebook',
-                        background=BG_DARK, borderwidth=0, tabmargins=[0,0,0,0])
+    # ── Tabs ───────────────────────────────────────────────────────
+    def _build_tabs(self):
+        style = ttk.Style()
+        style.theme_use('default')
+        style.configure('Dark.TNotebook', background=BG_DARK, borderwidth=0)
         style.configure('Dark.TNotebook.Tab',
                         background=BG_CARD, foreground=TXT_SECONDARY,
                         padding=[20, 10], font=('Segoe UI', 10, 'bold'),
@@ -926,49 +858,42 @@ class LandslideApp(tk.Tk):
     def _build_train_tab(self):
         frm = self.tab_train
 
-        # Top control bar
         ctrl = tk.Frame(frm, bg=BG_CARD, pady=14)
         ctrl.pack(fill=tk.X, padx=12, pady=(12, 6))
 
         tk.Label(ctrl, text="⚙  TRAINING PIPELINE",
                  bg=BG_CARD, fg=ACCENT_CYAN,
                  font=("Courier", 14, "bold")).grid(row=0, column=0, columnspan=5,
-                                                    sticky='w', padx=16, pady=(0,10))
+                                                    sticky='w', padx=16, pady=(0, 10))
 
         self.tune_var = tk.BooleanVar(value=False)
-        tune_chk = tk.Checkbutton(ctrl, text="Hyperparameter Tuning (GridSearchCV)",
-                                  variable=self.tune_var,
-                                  bg=BG_CARD, fg=TXT_PRIMARY, selectcolor=BG_DARK,
-                                  activebackground=BG_CARD, activeforeground=TXT_PRIMARY,
-                                  font=("Segoe UI", 10))
-        tune_chk.grid(row=1, column=0, padx=16, sticky='w')
+        tk.Checkbutton(ctrl, text="Hyperparameter Tuning (GridSearchCV)",
+                       variable=self.tune_var,
+                       bg=BG_CARD, fg=TXT_PRIMARY, selectcolor=BG_DARK,
+                       activebackground=BG_CARD, activeforeground=TXT_PRIMARY,
+                       font=("Segoe UI", 10)).grid(row=1, column=0, padx=16, sticky='w')
 
-        btn_specs = [
-            ("▶  RUN PIPELINE",    self._run_pipeline, ACCENT_BLUE,   160),
-            ("📊  DASHBOARD",       self._show_dashboard, "#0891B2",   140),
-            ("🗑  CLEAR LOG",       self._clear_log,    "#374151",     120),
-        ]
-        for i, (txt, cmd, clr, w) in enumerate(btn_specs):
-            btn = AnimatedButton(ctrl, txt, cmd, color=clr, width=w, height=36, font_size=9)
-            btn.grid(row=1, column=i+1, padx=8, sticky='e')
-
-        # Animated progress bar
-        prog_frame = tk.Frame(frm, bg=BG_DARK)
-        prog_frame.pack(fill=tk.X, padx=12, pady=2)
+        for i, (txt, cmd, clr, w) in enumerate([
+            ("▶  RUN PIPELINE", self._run_pipeline, ACCENT_BLUE, 160),
+            ("📊  DASHBOARD",   self._show_dashboard, "#0891B2", 140),
+            ("🗑  CLEAR LOG",   self._clear_log,    "#374151",   120),
+        ]):
+            AnimatedButton(ctrl, txt, cmd, color=clr, width=w, height=36, font_size=9
+                           ).grid(row=1, column=i + 1, padx=8, sticky='e')
 
         style2 = ttk.Style()
         style2.configure("Neon.Horizontal.TProgressbar",
                           troughcolor=BG_SURFACE, background=ACCENT_BLUE,
                           darkcolor=ACCENT_CYAN, lightcolor=ACCENT_CYAN,
                           bordercolor=BG_SURFACE, thickness=6)
+        prog_frame = tk.Frame(frm, bg=BG_DARK)
+        prog_frame.pack(fill=tk.X, padx=12, pady=2)
         self.progress = ttk.Progressbar(prog_frame, mode='indeterminate',
                                         length=800, style="Neon.Horizontal.TProgressbar")
-        self.progress.pack(fill=tk.X, padx=0, pady=4)
+        self.progress.pack(fill=tk.X, pady=4)
 
-        # Log area with styled frame
         log_outer = tk.Frame(frm, bg=BORDER_CLR, padx=1, pady=1)
         log_outer.pack(fill=tk.BOTH, expand=True, padx=12, pady=(4, 12))
-
         self.log = scrolledtext.ScrolledText(
             log_outer, bg="#040D1A", fg="#4ADE80",
             font=("Courier New", 10), relief=tk.FLAT,
@@ -980,9 +905,6 @@ class LandslideApp(tk.Tk):
         self._log("  ╔══════════════════════════════════════════════════╗")
         self._log("  ║   LANDSLIDE AI — READY                          ║")
         self._log("  ║   Press ▶ RUN PIPELINE to begin training        ║")
-        self._log("  ║                                                  ║")
-        self._log("  ║   FIX: Data now uses noise injection so         ║")
-        self._log("  ║   accuracy is realistic (≈75–80%), not 100%.   ║")
         self._log("  ╚══════════════════════════════════════════════════╝\n")
 
     def _log(self, text: str):
@@ -1019,21 +941,22 @@ class LandslideApp(tk.Tk):
                 plot_roc_curve(m.fpr, m.tpr, m.roc_auc,        show=False)
                 plot_feature_importance(m.feature_importances,  show=False)
                 plot_train_test_comparison(m.train_accuracy, m.accuracy, show=False)
-                plot_model_comparison(self.predictor.comparison,show=False)
+                plot_model_comparison(self.predictor.comparison, show=False)
                 plot_class_distribution(self.predictor.df,      show=False)
                 plot_all_metrics_dashboard(self.predictor,      show=False)
                 self._log(f"  ✔ All plots saved → {RESULTS_DIR}/\n")
 
                 self.after(0, lambda: self._rebuild_predict_form(self.predictor.feature_names))
                 self.after(0, self._populate_metric_cards)
-                self._set_status(f"TRAINED ✔  Accuracy: {m.accuracy*100:.1f}%  AUC: {m.roc_auc:.3f}", ACCENT_GREEN)
+                self._set_status(
+                    f"TRAINED ✔  Accuracy: {m.accuracy*100:.1f}%  AUC: {m.roc_auc:.3f}",
+                    ACCENT_GREEN)
                 messagebox.showinfo("Pipeline Complete",
                     f"✔ Training complete!\n\n"
                     f"Test Accuracy : {m.accuracy*100:.1f}%\n"
                     f"F1 (macro)    : {m.f1:.4f}\n"
                     f"ROC-AUC       : {m.roc_auc:.4f}\n\n"
-                    "Note: ~75–80% is realistic for noisy landslide data.\n"
-                    "100% would indicate data leakage or trivially easy labels.")
+                    "Note: ~75–80% is realistic for noisy landslide data.")
             except Exception as e:
                 self._log(f"\n  ✖ ERROR: {e}")
                 self._set_status(f"ERROR: {e}", ACCENT_RED)
@@ -1051,7 +974,6 @@ class LandslideApp(tk.Tk):
     def _build_predict_tab(self):
         frm = self.tab_predict
 
-        # ── Header ────────────────────────────────────────────────
         hdr_f = tk.Frame(frm, bg=BG_DARK)
         hdr_f.pack(fill=tk.X, padx=20, pady=(14, 6))
         tk.Label(hdr_f, text="🔍  RISK ASSESSMENT",
@@ -1061,11 +983,10 @@ class LandslideApp(tk.Tk):
                  text="Set environmental conditions below, then click  PREDICT  to assess landslide risk.",
                  bg=BG_DARK, fg=TXT_SECONDARY, font=("Segoe UI", 10)).pack(anchor='w')
 
-        # ── Main body: left (scrollable form) + right (gauge panel) ──
         body = tk.Frame(frm, bg=BG_DARK)
         body.pack(fill=tk.BOTH, expand=True, padx=16, pady=6)
 
-        # ── Right panel ───────────────────────────────────────────
+        # ── Right panel ──────────────────────────────────────────
         right_panel = tk.Frame(body, bg=BG_CARD, width=310, padx=16, pady=16)
         right_panel.pack(side=tk.RIGHT, fill=tk.Y)
         right_panel.pack_propagate(False)
@@ -1104,32 +1025,29 @@ class LandslideApp(tk.Tk):
         AnimatedButton(btn_row, "↺  RESET", self._reset_defaults,
                        color="#374151", width=110, height=40, font_size=10).pack(side=tk.LEFT, padx=4)
 
-        # ── Left: scrollable form container ──────────────────────
+        # ── Left: scrollable form ────────────────────────────────
         left_outer = tk.Frame(body, bg=BG_DARK)
         left_outer.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(0, 10))
 
-        # Canvas + scrollbar for scrolling
-        self._predict_canvas = tk.Canvas(left_outer, bg=BG_DARK,
-                                         highlightthickness=0)
+        self._predict_canvas = tk.Canvas(left_outer, bg=BG_DARK, highlightthickness=0)
         self._predict_canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         _vsb = ttk.Scrollbar(left_outer, orient=tk.VERTICAL,
                              command=self._predict_canvas.yview)
         _vsb.pack(side=tk.RIGHT, fill=tk.Y)
         self._predict_canvas.configure(yscrollcommand=_vsb.set)
 
-        # Inner frame lives inside the canvas
         self.predict_form_container = tk.Frame(self._predict_canvas, bg=BG_DARK)
         self._canvas_window = self._predict_canvas.create_window(
             (0, 0), window=self.predict_form_container, anchor='nw')
 
         def _on_frame_configure(e):
-            self._predict_canvas.configure(
-                scrollregion=self._predict_canvas.bbox("all"))
+            self._predict_canvas.configure(scrollregion=self._predict_canvas.bbox("all"))
+
         def _on_canvas_configure(e):
-            self._predict_canvas.itemconfig(
-                self._canvas_window, width=e.width)
+            self._predict_canvas.itemconfig(self._canvas_window, width=e.width)
+
         def _on_mousewheel(e):
-            self._predict_canvas.yview_scroll(int(-1*(e.delta/120)), "units")
+            self._predict_canvas.yview_scroll(int(-1 * (e.delta / 120)), "units")
 
         self.predict_form_container.bind("<Configure>", _on_frame_configure)
         self._predict_canvas.bind("<Configure>", _on_canvas_configure)
@@ -1144,511 +1062,334 @@ class LandslideApp(tk.Tk):
         if self._form_frame is not None:
             self._form_frame.destroy()
 
-        # Filter out Random_Noise — not meaningful to users
         display_features = [f for f in features if f != 'Random_Noise']
 
-        self._form_frame = tk.Frame(self.predict_form_container,
-                                    bg=BG_CARD, padx=20, pady=16)
-        self._form_frame.pack(fill=tk.BOTH, expand=True, pady=4,
-                              padx=2)
+        self._form_frame = tk.Frame(self.predict_form_container, bg=BG_DARK)
+        self._form_frame.pack(fill=tk.BOTH, expand=True, padx=4, pady=4)
 
-        tk.Label(self._form_frame, text="⚙  ENVIRONMENTAL PARAMETERS",
+        # Section header
+        sect_hdr = tk.Frame(self._form_frame, bg=BG_CARD, padx=14, pady=10)
+        sect_hdr.pack(fill=tk.X, pady=(0, 6))
+        tk.Label(sect_hdr, text="⚙  ENVIRONMENTAL PARAMETERS",
                  bg=BG_CARD, fg=ACCENT_CYAN,
-                 font=("Courier", 12, "bold")).grid(
-                     row=0, column=0, columnspan=4, sticky='w', pady=(0, 16))
-
-        # Slider ranges
-        SLIDER_RANGES = {
-            'Rainfall_mm'        : (10,  350, 1,    float),
-            'Slope_Angle'        : (1,   70,  0.5,  float),
-            'Soil_Saturation'    : (0.0, 1.0, 0.01, float),
-            'Vegetation_Cover'   : (0.0, 1.0, 0.01, float),
-            'Earthquake_Activity': (0.0, 9.5, 0.1,  float),
-            'Proximity_to_Water' : (0.0, 12,  0.1,  float),
-            'Soil_Type_Gravel'   : (0,   1,   1,    int),
-            'Soil_Type_Sand'     : (0,   1,   1,    int),
-            'Soil_Type_Silt'     : (0,   1,   1,    int),
-        }
+                 font=("Courier", 11, "bold")).pack(anchor='w')
 
         self.feature_vars   = {}
         self.feature_scales = {}
-        self._entry_widgets = {}
 
-        # Layout: each feature occupies one full row (label row + slider row)
-        # so features are stacked vertically, easy to read
-        for i, feat in enumerate(display_features):
-            row_base = (i * 3) + 1
-            icon = FEATURE_ICONS.get(feat, '◆')
-            hint = FEATURE_HINTS.get(feat, '')
+        for feat in display_features:
+            default_val = FEATURE_DEFAULTS.get(feat, '0')
+            is_binary   = feat in BINARY_FEATURES
 
-            # ── Row A: icon + name + range hint + value entry ──────────
-            lbl_frame = tk.Frame(self._form_frame, bg=BG_CARD)
-            lbl_frame.grid(row=row_base, column=0, columnspan=4,
-                           sticky='ew', padx=4, pady=(10, 2))
-            lbl_frame.columnconfigure(1, weight=1)
+            row = tk.Frame(self._form_frame, bg=BG_SURFACE,
+                           padx=14, pady=10, relief=tk.FLAT)
+            row.pack(fill=tk.X, pady=3)
 
-            tk.Label(lbl_frame,
-                     text=f"{icon}  {feat.replace('_', ' ')}",
-                     bg=BG_CARD, fg=TXT_PRIMARY,
-                     font=("Segoe UI", 11, "bold")).grid(
-                         row=0, column=0, sticky='w')
+            # Icon + label
+            icon = FEATURE_ICONS.get(feat, '•')
+            label_text = feat.replace('_', ' ').title()
+            # Strip "Soil Type" prefix for cleaner display in binary rows
+            if is_binary:
+                label_text = feat.replace('_', ' ').replace('Soil Type ', '')
 
-            tk.Label(lbl_frame,
-                     text=f"   {hint}",
-                     bg=BG_CARD, fg=TXT_MUTED,
-                     font=("Segoe UI", 9)).grid(
-                         row=0, column=1, sticky='w', padx=(4, 0))
+            lbl_frame = tk.Frame(row, bg=BG_SURFACE)
+            lbl_frame.pack(side=tk.LEFT, fill=tk.Y)
+            tk.Label(lbl_frame, text=f"{icon}  {label_text}",
+                     bg=BG_SURFACE, fg=TXT_PRIMARY,
+                     font=("Segoe UI", 10, "bold"),
+                     width=22, anchor='w').pack(anchor='w')
 
-            # Value entry box (shows current slider value; editable)
-            var = tk.DoubleVar(value=float(FEATURE_DEFAULTS.get(feat, '0')))
-            self.feature_vars[feat] = var
+            hint = FEATURE_HINTS.get(feat)
+            if hint:
+                tk.Label(lbl_frame, text=hint,
+                         bg=BG_SURFACE, fg=TXT_MUTED,
+                         font=("Segoe UI", 8), anchor='w').pack(anchor='w')
 
-            entry_var = tk.StringVar(value=self._fmt_val(feat, var.get()))
-            entry = tk.Entry(lbl_frame,
-                             textvariable=entry_var,
-                             bg=BG_INPUT, fg=ACCENT_CYAN,
-                             insertbackground=ACCENT_CYAN,
-                             font=("Courier New", 10, "bold"),
-                             width=10, relief=tk.FLAT,
-                             justify='center',
-                             highlightthickness=1,
-                             highlightbackground=BORDER_CLR,
-                             highlightcolor=ACCENT_BLUE)
-            entry.grid(row=0, column=2, sticky='e', padx=(8, 0))
-            self._entry_widgets[feat] = entry_var
+            if is_binary:
+                # ── Toggle button ─────────────────────────────────
+                int_var = tk.IntVar(value=int(default_val))
+                self.feature_vars[feat] = int_var
+                toggle = ToggleButton(row, variable=int_var)
+                toggle.pack(side=tk.RIGHT, padx=(0, 8))
+            else:
+                # ── Slider + entry ────────────────────────────────
+                lo, hi, res = FEATURE_RANGES.get(feat, (0, 1, 0.01))
+                double_var = tk.DoubleVar(value=float(default_val))
+                self.feature_vars[feat] = double_var
 
-            # ── Row B: slider spanning full width ──────────────────────
-            sl_range = SLIDER_RANGES.get(feat, (0, 1, 0.01, float))
+                entry_frame = tk.Frame(row, bg=BG_SURFACE)
+                entry_frame.pack(side=tk.RIGHT, padx=(0, 8))
 
-            def _slider_moved(v, f=feat, ev=entry_var, dv=var):
-                ev.set(self._fmt_val(f, float(v)))
+                entry = tk.Entry(entry_frame, textvariable=double_var,
+                                 bg=BG_INPUT, fg=ACCENT_CYAN,
+                                 font=("Courier", 10, "bold"),
+                                 relief=tk.FLAT, width=10,
+                                 insertbackground=ACCENT_CYAN,
+                                 justify='right')
+                entry.pack()
 
-            def _entry_committed(event, f=feat, ev=entry_var, dv=var, sl_r=sl_range):
-                raw = ev.get().strip()
-                # strip units so user can type "120 mm" or just "120"
-                for suffix in [' mm', ' °', ' km', ' M', 'M ', 'YES', 'NO']:
-                    raw = raw.replace(suffix, '').strip()
-                try:
-                    val = float(raw)
-                    val = max(sl_r[0], min(sl_r[1], val))
-                    dv.set(val)
-                    ev.set(self._fmt_val(f, val))
-                except ValueError:
-                    ev.set(self._fmt_val(f, dv.get()))
+                slider_frame = tk.Frame(row, bg=BG_SURFACE)
+                slider_frame.pack(side=tk.LEFT, fill=tk.X, expand=True,
+                                  padx=(10, 10))
 
-            sl = tk.Scale(self._form_frame,
-                          from_=sl_range[0], to=sl_range[1],
-                          resolution=sl_range[2], orient=tk.HORIZONTAL,
-                          variable=var, length=0,
-                          bg=BG_SURFACE, fg=ACCENT_CYAN,
-                          troughcolor=BG_INPUT, activebackground=ACCENT_BLUE,
-                          highlightthickness=0, showvalue=False, bd=0,
-                          command=_slider_moved)
-            sl.grid(row=row_base + 1, column=0, columnspan=4,
-                    padx=4, pady=(0, 2), sticky='ew')
-            self.feature_scales[feat] = sl
+                scale = tk.Scale(slider_frame,
+                                 variable=double_var,
+                                 from_=lo, to=hi,
+                                 resolution=res,
+                                 orient=tk.HORIZONTAL,
+                                 showvalue=False,
+                                 bg=BG_SURFACE, fg=ACCENT_CYAN,
+                                 troughcolor=BG_INPUT,
+                                 activebackground=ACCENT_BLUE,
+                                 highlightthickness=0,
+                                 bd=0, sliderrelief=tk.FLAT,
+                                 sliderlength=22)
+                scale.pack(fill=tk.X)
+                self.feature_scales[feat] = scale
 
-            entry.bind("<Return>",    _entry_committed)
-            entry.bind("<FocusOut>",  _entry_committed)
+    def _get_feature_values(self) -> dict:
+        values = {}
+        for feat, var in self.feature_vars.items():
+            values[feat] = var.get()
+        # Include Random_Noise with default
+        if 'Random_Noise' in (self.predictor.feature_names or []):
+            values['Random_Noise'] = float(FEATURE_DEFAULTS.get('Random_Noise', 0.5))
+        return values
 
-            # ── Row C: thin separator ──────────────────────────────────
-            if i < len(display_features) - 1:
-                tk.Frame(self._form_frame, bg=BORDER_CLR, height=1).grid(
-                    row=row_base + 2, column=0, columnspan=4,
-                    sticky='ew', padx=4, pady=(4, 0))
+    def _predict(self):
+        if not self._require_model():
+            return
+        try:
+            values = self._get_feature_values()
+            result = self.predictor.predict_sample(values)
 
-        self._form_frame.columnconfigure(0, weight=0)
-        self._form_frame.columnconfigure(1, weight=1)
-        self._form_frame.columnconfigure(2, weight=0)
+            risk_pct = result['risk_pct']
+            level    = result['level']
 
-    def _fmt_val(self, feat, val):
-        if feat in ('Soil_Type_Gravel','Soil_Type_Sand','Soil_Type_Silt'):
-            return "YES" if int(round(val)) == 1 else "NO"
-        elif feat == 'Rainfall_mm':
-            return f"{val:.0f} mm"
-        elif feat == 'Slope_Angle':
-            return f"{val:.1f} °"
-        elif feat in ('Soil_Saturation','Vegetation_Cover'):
-            return f"{val:.2f}"
-        elif feat == 'Earthquake_Activity':
-            return f"M {val:.1f}"
-        elif feat == 'Proximity_to_Water':
-            return f"{val:.1f} km"
-        return f"{val:.2f}"
+            color_map = {
+                "HIGH RISK":     ACCENT_RED,
+                "MODERATE RISK": ACCENT_AMBER,
+                "LOW RISK":      ACCENT_GREEN,
+            }
+            clr = color_map.get(level, ACCENT_CYAN)
+
+            self.result_label.config(text=level, fg=clr)
+            self.prob_label.config(
+                text=f"Landslide: {result['prob_yes']*100:.1f}%   Safe: {result['prob_no']*100:.1f}%",
+                fg=TXT_SECONDARY)
+
+            # Probability bar
+            self.risk_canvas.delete("all")
+            w = 270
+            fill_w = int(w * result['prob_yes'])
+            self.risk_canvas.create_rectangle(0, 0, w, 24, fill=BG_INPUT, outline='')
+            self.risk_canvas.create_rectangle(0, 0, fill_w, 24, fill=clr, outline='')
+            self.risk_canvas.create_text(w // 2, 12, text=f"{risk_pct:.1f}%",
+                                         fill="white", font=("Courier", 9, "bold"))
+            self._risk_meter.animate_to(result['prob_yes'])
+            self._set_status(f"Predicted: {level}  ({risk_pct:.1f}%)", clr)
+
+        except Exception as e:
+            messagebox.showerror("Prediction Error", str(e))
 
     def _reset_defaults(self):
         for feat, var in self.feature_vars.items():
-            val = float(FEATURE_DEFAULTS.get(feat, '0'))
-            var.set(val)
-            if hasattr(self, '_entry_widgets') and feat in self._entry_widgets:
-                self._entry_widgets[feat].set(self._fmt_val(feat, val))
-        self._risk_meter.set_risk(0)
-        self.result_label.config(text="── Awaiting prediction ──", fg=TXT_MUTED)
-        self.prob_label.config(text="")
-        self.risk_canvas.delete('all')
+            default = FEATURE_DEFAULTS.get(feat, '0')
+            if feat in BINARY_FEATURES:
+                var.set(int(default))
+            else:
+                var.set(float(default))
 
-    def _predict(self):
-        if not self._require_model(): return
-        try:
-            vals = {f: float(v.get()) for f, v in self.feature_vars.items()}
-            # Auto-fill Random_Noise if not shown (it's uninformative anyway)
-            if 'Random_Noise' in self.predictor.feature_names and 'Random_Noise' not in vals:
-                vals['Random_Noise'] = 0.5
-        except (ValueError, tk.TclError):
-            messagebox.showerror("Input Error", "All fields must be valid numbers.")
-            return
-
-        res  = self.predictor.predict_sample(vals)
-        clr  = ACCENT_RED if res['risk_pct'] >= 70 else ACCENT_AMBER if res['risk_pct'] >= 40 else ACCENT_GREEN
-        icon = "🔴" if res['risk_pct'] >= 70 else "🟡" if res['risk_pct'] >= 40 else "🟢"
-
-        self._risk_meter.set_risk(res['risk_pct'])
-        label_txt = (f"{icon}  {'LANDSLIDE LIKELY' if res['prediction']==1 else 'NO LANDSLIDE'}\n"
-                     f"{res['risk_level']}")
-        self.result_label.config(text=label_txt, fg=clr, font=("Courier", 11, "bold"))
-        self.prob_label.config(
-            text=f"P(No LS)={res['prob_no']*100:.1f}%   P(LS)={res['prob_yes']*100:.1f}%",
-            fg=TXT_SECONDARY)
-
-        # Animated risk bar
-        self.risk_canvas.delete('all')
-        w = 290
-        self.risk_canvas.create_rectangle(0, 3, w, 19, fill=BG_SURFACE, outline='')
-        fill_w = int(w * res['risk_pct'] / 100)
-        if fill_w > 0:
-            self.risk_canvas.create_rectangle(0, 3, fill_w, 19, fill=clr, outline='')
-        self.risk_canvas.create_text(w//2, 11, text=f"{res['risk_pct']:.1f}%",
-                                     fill='white', font=("Segoe UI", 9, "bold"))
+    def _require_model(self) -> bool:
+        if self.predictor.model is None:
+            messagebox.showwarning("No Model",
+                "Please run the training pipeline first (TRAIN tab).")
+            return False
+        return True
 
     # ── Results Tab ────────────────────────────────────────────────
     def _build_results_tab(self):
         frm = self.tab_results
 
-        # Header
         hdr = tk.Frame(frm, bg=BG_DARK)
-        hdr.pack(fill=tk.X, padx=20, pady=(16, 8))
-        tk.Label(hdr, text="📊  EVALUATION RESULTS & PLOTS",
+        hdr.pack(fill=tk.X, padx=20, pady=(14, 6))
+        tk.Label(hdr, text="📊  MODEL RESULTS & ANALYTICS",
                  bg=BG_DARK, fg=ACCENT_CYAN,
                  font=("Courier", 15, "bold")).pack(anchor='w')
-        tk.Label(hdr, text=f"All plots auto-saved to  '{RESULTS_DIR}/'  after training  •  Train first to enable plots",
-                 bg=BG_DARK, fg=TXT_SECONDARY, font=("Segoe UI", 9)).pack(anchor='w')
+        tk.Label(hdr, text="Interactive charts and metrics. Train the model first to populate.",
+                 bg=BG_DARK, fg=TXT_SECONDARY, font=("Segoe UI", 10)).pack(anchor='w')
 
-        # Metric summary card row (populated after training)
+        # Metric cards row
         self._metric_cards_frame = tk.Frame(frm, bg=BG_DARK)
-        self._metric_cards_frame.pack(fill=tk.X, padx=16, pady=(4, 6))
+        self._metric_cards_frame.pack(fill=tk.X, padx=16, pady=(4, 8))
+        self._metric_card_widgets = {}
+        for metric in ['Accuracy', 'F1-Score', 'Precision', 'Recall', 'ROC-AUC', 'CV Mean']:
+            card = tk.Frame(self._metric_cards_frame, bg=BG_CARD, padx=14, pady=10)
+            card.pack(side=tk.LEFT, expand=True, fill=tk.X, padx=4)
+            tk.Label(card, text=metric, bg=BG_CARD, fg=TXT_MUTED,
+                     font=("Segoe UI", 8)).pack()
+            val_lbl = tk.Label(card, text="—", bg=BG_CARD, fg=ACCENT_CYAN,
+                               font=("Courier", 13, "bold"))
+            val_lbl.pack()
+            self._metric_card_widgets[metric] = val_lbl
 
-        # divider
-        tk.Frame(frm, bg=BORDER_CLR, height=1).pack(fill=tk.X, padx=16)
-
-        # Plot buttons grid
-        tk.Label(frm, text="VISUALISATION PANELS",
-                 bg=BG_DARK, fg=TXT_SECONDARY,
-                 font=("Courier", 9, "bold")).pack(anchor='w', padx=20, pady=(10, 4))
-
-        grid_frame = tk.Frame(frm, bg=BG_DARK)
-        grid_frame.pack(padx=16, pady=4, fill=tk.BOTH, expand=True)
-
-        plots = [
-            ("📉  Confusion\nMatrix",    self._show_confusion_matrix, ACCENT_BLUE,   "#8B5CF6"),
-            ("📈  ROC\nCurve",           self._show_roc,               "#0891B2",     "#06B6D4"),
-            ("📊  Feature\nImportances", self._show_feature_imp,       "#059669",     "#10B981"),
-            ("⚖️  Train vs\nTest",        self._show_train_test,        "#D97706",     "#F59E0B"),
-            ("🔁  Model\nComparison",    self._show_model_comp,        "#7C3AED",     "#A855F7"),
-            ("🥧  Class\nDistribution",  self._show_class_dist,        "#DC2626",     "#EF4444"),
-            ("🗂  Full\nDashboard",      self._show_full_dashboard,    "#374151",     "#6B7280"),
+        # Chart buttons
+        btn_row = tk.Frame(frm, bg=BG_DARK)
+        btn_row.pack(fill=tk.X, padx=16, pady=4)
+        charts = [
+            ("Confusion Matrix",    lambda: plot_confusion_matrix(self.predictor.metrics.confusion_mat)),
+            ("ROC Curve",           lambda: plot_roc_curve(self.predictor.metrics.fpr,
+                                                           self.predictor.metrics.tpr,
+                                                           self.predictor.metrics.roc_auc)),
+            ("Feature Importance",  lambda: plot_feature_importance(self.predictor.metrics.feature_importances)),
+            ("Train vs Test",       lambda: plot_train_test_comparison(
+                                        self.predictor.metrics.train_accuracy,
+                                        self.predictor.metrics.accuracy)),
+            ("Model Comparison",    lambda: plot_model_comparison(self.predictor.comparison)),
+            ("Class Distribution",  lambda: plot_class_distribution(self.predictor.df)),
+            ("Full Dashboard",      lambda: plot_all_metrics_dashboard(self.predictor)),
         ]
+        for label, cmd in charts:
+            def _make_cmd(c):
+                def _cb():
+                    if not self._require_model(): return
+                    c()
+                return _cb
+            AnimatedButton(btn_row, label, _make_cmd(cmd),
+                           color=ACCENT_BLUE, width=140, height=34, font_size=8
+                           ).pack(side=tk.LEFT, padx=4)
 
-        for i, (label, cmd, clr, hover_clr) in enumerate(plots):
-            r, c = divmod(i, 4)
-            card_outer = tk.Frame(grid_frame, bg=BORDER_CLR, padx=1, pady=1)
-            card_outer.grid(row=r, column=c, padx=10, pady=10, sticky='nsew')
-            grid_frame.columnconfigure(c, weight=1)
-            grid_frame.rowconfigure(r, weight=1)
-
-            card = tk.Frame(card_outer, bg=BG_CARD, padx=16, pady=16)
-            card.pack(fill=tk.BOTH, expand=True)
-
-            tk.Label(card, text=label, bg=BG_CARD, fg=TXT_PRIMARY,
-                     font=("Segoe UI", 11, "bold"), justify='center').pack(pady=(0, 12))
-
-            btn = AnimatedButton(card, "▶  SHOW", cmd, color=clr, width=130, height=36, font_size=9)
-            btn.pack()
+        # Report area
+        report_outer = tk.Frame(frm, bg=BORDER_CLR, padx=1, pady=1)
+        report_outer.pack(fill=tk.BOTH, expand=True, padx=16, pady=(4, 12))
+        self.report_text = scrolledtext.ScrolledText(
+            report_outer, bg="#040D1A", fg=ACCENT_CYAN,
+            font=("Courier New", 9), relief=tk.FLAT, padx=12, pady=10
+        )
+        self.report_text.pack(fill=tk.BOTH, expand=True)
+        self.report_text.insert(tk.END, "  Train the model to see full performance report here.\n")
 
     def _populate_metric_cards(self):
-        """Show live metric summary cards in the Results tab after training."""
-        for w in self._metric_cards_frame.winfo_children():
-            w.destroy()
         m = self.predictor.metrics
-        cards = [
-            ("🎯  Accuracy",   f"{m.accuracy*100:.1f}%",  ACCENT_BLUE),
-            ("⚡  F1-Score",   f"{m.f1:.4f}",             ACCENT_GREEN),
-            ("📈  ROC-AUC",    f"{m.roc_auc:.4f}",        ACCENT_CYAN),
-            ("🔬  Precision",  f"{m.precision:.4f}",       ACCENT_AMBER),
-            ("🔍  Recall",     f"{m.recall:.4f}",          ACCENT_PURPLE),
-            ("📊  CV Mean",    f"{m.cv_mean:.4f}",         "#EC4899"),
-        ]
-        for title, value, clr in cards:
-            outer = tk.Frame(self._metric_cards_frame, bg=BORDER_CLR, padx=1, pady=1)
-            outer.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=5, pady=2)
-            inner = tk.Frame(outer, bg=BG_CARD, padx=12, pady=10)
-            inner.pack(fill=tk.BOTH, expand=True)
-            tk.Label(inner, text=title, bg=BG_CARD, fg=TXT_SECONDARY,
-                     font=("Segoe UI", 8, "bold")).pack()
-            tk.Label(inner, text=value, bg=BG_CARD, fg=clr,
-                     font=("Courier", 14, "bold")).pack()
+        data = {
+            'Accuracy': f"{m.accuracy*100:.2f}%",
+            'F1-Score': f"{m.f1:.4f}",
+            'Precision': f"{m.precision:.4f}",
+            'Recall': f"{m.recall:.4f}",
+            'ROC-AUC': f"{m.roc_auc:.4f}",
+            'CV Mean': f"{m.cv_mean:.4f}",
+        }
+        for key, val in data.items():
+            self._metric_card_widgets[key].config(text=val)
 
-    # ── Results helpers ────────────────────────────────────────────
-    def _require_model(self):
-        if self.predictor.model is None:
-            messagebox.showwarning("Not Trained", "Please run the training pipeline first.")
-            return False
-        return True
-
-    def _show_confusion_matrix(self):
-        if not self._require_model(): return
-        plot_confusion_matrix(self.predictor.metrics.confusion_mat, show=True)
-
-    def _show_roc(self):
-        if not self._require_model(): return
-        m = self.predictor.metrics
-        plot_roc_curve(m.fpr, m.tpr, m.roc_auc, show=True)
-
-    def _show_feature_imp(self):
-        if not self._require_model(): return
-        plot_feature_importance(self.predictor.metrics.feature_importances, show=True)
-
-    def _show_train_test(self):
-        if not self._require_model(): return
-        m = self.predictor.metrics
-        plot_train_test_comparison(m.train_accuracy, m.accuracy, show=True)
-
-    def _show_model_comp(self):
-        if not self._require_model(): return
-        if not self.predictor.comparison:
-            messagebox.showwarning("Not Available", "Run the pipeline first.")
-            return
-        plot_model_comparison(self.predictor.comparison, show=True)
-
-    def _show_class_dist(self):
-        if self.predictor.df is None:
-            messagebox.showwarning("Not Loaded", "Run the pipeline first.")
-            return
-        plot_class_distribution(self.predictor.df, show=True)
-
-    def _show_full_dashboard(self):
-        if not self._require_model(): return
-        plot_all_metrics_dashboard(self.predictor, show=True)
+        self.report_text.delete('1.0', tk.END)
+        self.report_text.insert(tk.END, m.summary() + "\n\n")
+        self.report_text.insert(tk.END, "  Classification Report:\n" + m.classification_rep)
 
     # ── About Tab ──────────────────────────────────────────────────
     def _build_about_tab(self):
         frm = self.tab_about
 
-        # ── Scrollable canvas wrapper ──────────────────────────────
-        outer_canvas = tk.Canvas(frm, bg=BG_DARK, highlightthickness=0)
-        outer_canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        vsb = ttk.Scrollbar(frm, orient=tk.VERTICAL, command=outer_canvas.yview)
+        outer = tk.Frame(frm, bg=BG_DARK)
+        outer.pack(fill=tk.BOTH, expand=True)
+
+        canvas = tk.Canvas(outer, bg=BG_DARK, highlightthickness=0)
+        canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        vsb = ttk.Scrollbar(outer, orient=tk.VERTICAL, command=canvas.yview)
         vsb.pack(side=tk.RIGHT, fill=tk.Y)
-        outer_canvas.configure(yscrollcommand=vsb.set)
+        canvas.configure(yscrollcommand=vsb.set)
 
-        scroll_frame = tk.Frame(outer_canvas, bg=BG_DARK)
-        win_id = outer_canvas.create_window((0, 0), window=scroll_frame, anchor='nw')
+        scroll_frame = tk.Frame(canvas, bg=BG_DARK)
+        win = canvas.create_window((0, 0), window=scroll_frame, anchor='nw')
 
-        def _cfg(e): outer_canvas.configure(scrollregion=outer_canvas.bbox("all"))
-        def _resize(e): outer_canvas.itemconfig(win_id, width=e.width)
-        def _wheel(e): outer_canvas.yview_scroll(int(-1*(e.delta/120)), "units")
-        scroll_frame.bind("<Configure>", _cfg)
-        outer_canvas.bind("<Configure>", _resize)
-        outer_canvas.bind_all("<MouseWheel>", _wheel)
+        def _resize(e):
+            canvas.itemconfig(win, width=e.width)
+        canvas.bind('<Configure>', _resize)
+        scroll_frame.bind('<Configure>',
+                          lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
+        canvas.bind_all("<MouseWheel>",
+                        lambda e: canvas.yview_scroll(int(-1*(e.delta/120)), "units"))
 
-        # ── Helper to add sections ─────────────────────────────────
-        def section(title, icon="▸"):
-            hdr = tk.Frame(scroll_frame, bg=BG_SURFACE, padx=18, pady=10)
-            hdr.pack(fill=tk.X, padx=20, pady=(18, 0))
-            tk.Label(hdr, text=f"{icon}  {title}",
-                     bg=BG_SURFACE, fg=ACCENT_CYAN,
-                     font=("Courier", 12, "bold")).pack(anchor='w')
-            body = tk.Frame(scroll_frame, bg=BG_CARD, padx=22, pady=14)
-            body.pack(fill=tk.X, padx=20, pady=0)
-            return body
+        def section(title, icon="•"):
+            f = tk.Frame(scroll_frame, bg=BG_CARD, padx=20, pady=14)
+            f.pack(fill=tk.X, padx=20, pady=6)
+            tk.Label(f, text=f"{icon}  {title}", bg=BG_CARD, fg=ACCENT_CYAN,
+                     font=("Courier", 11, "bold")).pack(anchor='w', pady=(0, 8))
+            return f
 
-        def para(parent, text, fg=TXT_PRIMARY, font=("Segoe UI", 10)):
-            tk.Label(parent, text=text, bg=BG_CARD, fg=fg,
-                     font=font, justify='left',
-                     wraplength=900, anchor='w').pack(anchor='w', pady=3)
+        def kv(parent, key, val):
+            row = tk.Frame(parent, bg=BG_SURFACE, padx=12, pady=6)
+            row.pack(fill=tk.X, pady=2)
+            tk.Label(row, text=key, bg=BG_SURFACE, fg=ACCENT_AMBER,
+                     font=("Segoe UI", 9, "bold"), width=22, anchor='w').pack(side=tk.LEFT)
+            tk.Label(row, text=val, bg=BG_SURFACE, fg=TXT_PRIMARY,
+                     font=("Segoe UI", 9), anchor='w', wraplength=700).pack(side=tk.LEFT)
 
-        def kv(parent, key, value, key_fg=ACCENT_AMBER):
-            row = tk.Frame(parent, bg=BG_CARD)
-            row.pack(anchor='w', fill=tk.X, pady=2)
-            tk.Label(row, text=f"  {key}:", bg=BG_CARD, fg=key_fg,
-                     font=("Segoe UI", 10, "bold"), width=26,
-                     anchor='w').pack(side=tk.LEFT)
-            tk.Label(row, text=value, bg=BG_CARD, fg=TXT_PRIMARY,
-                     font=("Segoe UI", 10), anchor='w').pack(side=tk.LEFT)
+        def para(parent, text, fg=TXT_PRIMARY, font=("Segoe UI", 9)):
+            tk.Label(parent, text=text, bg=BG_CARD, fg=fg, font=font,
+                     wraplength=820, justify='left').pack(anchor='w', pady=(4, 0))
 
-        def badge_row(parent, items):
-            row = tk.Frame(parent, bg=BG_CARD)
-            row.pack(anchor='w', pady=4)
-            for label, fg in items:
-                tk.Label(row, text=f"  {label}  ",
-                         bg=BG_SURFACE, fg=fg,
-                         font=("Courier", 9, "bold"),
-                         relief=tk.FLAT, padx=6, pady=3).pack(
-                             side=tk.LEFT, padx=(0, 6))
+        # Title
+        title_f = tk.Frame(scroll_frame, bg=BG_DARK, pady=16)
+        title_f.pack(fill=tk.X, padx=20)
+        tk.Label(title_f, text="🏔  LANDSLIDE PREDICTION AI",
+                 bg=BG_DARK, fg=ACCENT_CYAN,
+                 font=("Courier", 18, "bold")).pack(anchor='w')
+        tk.Label(title_f, text="Environmental Disaster Risk Assessment System  •  v2.0",
+                 bg=BG_DARK, fg=TXT_MUTED, font=("Segoe UI", 10)).pack(anchor='w')
 
-        # ── Title banner ──────────────────────────────────────────
-        banner = tk.Frame(scroll_frame, bg=BG_CARD, padx=24, pady=20)
-        banner.pack(fill=tk.X, padx=20, pady=(16, 0))
-        tk.Label(banner, text="⛰  LANDSLIDE PREDICTION AI",
-                 bg=BG_CARD, fg=ACCENT_CYAN,
-                 font=("Courier", 20, "bold")).pack(anchor='w')
-        tk.Label(banner, text="Environmental Disaster Risk Assessment System  ·  Machine Learning Edition",
-                 bg=BG_CARD, fg=TXT_SECONDARY,
-                 font=("Segoe UI", 11)).pack(anchor='w', pady=(4, 0))
-        badge_row(banner, [
-            ("🌲  Random Forest",   ACCENT_GREEN),
-            ("📊  Synthetic Dataset", ACCENT_CYAN),
-            ("🎯  ~77% Accuracy",   ACCENT_AMBER),
-            ("📈  AUC ~0.82",       ACCENT_PURPLE),
-        ])
-
-        # ── What does this system do? ──────────────────────────────
-        b = section("WHAT DOES THIS SYSTEM DO?", "🎯")
-        para(b, "This application uses a trained Machine Learning model to assess the probability of a landslide "
-                "occurring given a set of measurable environmental conditions. By adjusting parameters like "
-                "rainfall, slope angle, and soil saturation in the PREDICT tab, you receive an instant risk "
-                "classification — Low, Moderate, or High — along with the model's confidence probability.")
-        para(b, "It is designed for educational and research purposes in environmental AI and disaster risk management.")
-
-        # ── Input features ────────────────────────────────────────
-        b = section("INPUT FEATURES (What the model reads)", "📥")
-        features_info = [
-            ("🌧  Rainfall (mm)",          "50–300 mm",   "Total rainfall; heavy rain saturates soil and triggers landslides."),
-            ("⛰  Slope Angle (°)",        "5–65 °",      "Steeper slopes have higher shear stress, increasing failure risk."),
-            ("💧  Soil Saturation",        "0.0–1.0",     "Fraction of pore space filled with water; high = weakened cohesion."),
-            ("🌿  Vegetation Cover",       "0.0–1.0",     "Roots stabilise slopes; dense cover (high value) reduces risk."),
-            ("📳  Earthquake Activity",    "M 0–9",       "Seismic shaking can dislodge unstable material instantly."),
-            ("🏞  Proximity to Water",     "0–10 km",     "Nearby rivers/streams can undercut slopes and raise water tables."),
-            ("🪨  Soil Type: Gravel",      "Yes / No",    "Gravel drains quickly — generally lower landslide susceptibility."),
-            ("🏜  Soil Type: Sand",        "Yes / No",    "Sandy soils can liquefy under saturation; moderate risk."),
-            ("🌍  Soil Type: Silt",        "Yes / No",    "Fine-grained, high water retention — highest landslide risk."),
-        ]
-        for icon_name, rng, desc in features_info:
-            row = tk.Frame(b, bg=BG_SURFACE, padx=12, pady=8)
-            row.pack(fill=tk.X, pady=3)
-            tk.Label(row, text=icon_name, bg=BG_SURFACE, fg=ACCENT_CYAN,
-                     font=("Segoe UI", 10, "bold"), width=24, anchor='w').pack(side=tk.LEFT)
-            tk.Label(row, text=rng, bg=BG_SURFACE, fg=ACCENT_AMBER,
-                     font=("Courier", 9), width=10, anchor='w').pack(side=tk.LEFT)
-            tk.Label(row, text=desc, bg=BG_SURFACE, fg=TXT_SECONDARY,
-                     font=("Segoe UI", 9), anchor='w', wraplength=700).pack(side=tk.LEFT, padx=(8,0))
-
-        # ── Dataset ───────────────────────────────────────────────
         b = section("DATASET", "🗂")
-        kv(b, "Type",           "Synthetic, noise-injected (generated fresh each run)")
-        kv(b, "Samples",        "1,200 rows")
-        kv(b, "Target column",  "Landslide  (0 = No,  1 = Yes)")
-        kv(b, "Class balance",  "Roughly balanced via logistic probability model + label noise")
-        kv(b, "Train / Test",   "80% training  /  20% test  (stratified split)")
-        kv(b, "Preprocessing",  "Duplicate removal → Median imputation → StandardScaler (SVM/LR only)")
-        para(b, "A realistic noise injection pipeline is used so that class boundaries overlap naturally, "
-                "preventing the trivially perfect separability that would produce 100% accuracy and mask real-world complexity.",
-             fg=TXT_SECONDARY, font=("Segoe UI", 9))
+        kv(b, "Type",          "Synthetic, noise-injected (generated fresh each run)")
+        kv(b, "Samples",       "1,200 rows")
+        kv(b, "Target column", "Landslide  (0 = No,  1 = Yes)")
+        kv(b, "Class balance", "Roughly balanced via logistic probability model + label noise")
+        kv(b, "Train / Test",  "80% training  /  20% test  (stratified split)")
+        kv(b, "Preprocessing", "Duplicate removal → Median imputation → StandardScaler (SVM/LR only)")
 
-        # ── Model ─────────────────────────────────────────────────
         b = section("MODEL — Random Forest Classifier", "🌲")
-        kv(b, "Algorithm",        "Random Forest (scikit-learn)")
-        kv(b, "n_estimators",     "100 decision trees")
-        kv(b, "max_depth",        "10  (prevents overfitting on noisy data)")
-        kv(b, "min_samples_split","10  (extra regularisation)")
-        kv(b, "min_samples_leaf", "5   (smooths decision boundaries)")
-        kv(b, "class_weight",     "balanced  (handles class imbalance automatically)")
-        kv(b, "random_state",     "42  (reproducible results)")
-        para(b, "A Random Forest trains many decorrelated decision trees and aggregates their votes. "
-                "This ensemble approach reduces variance compared to a single decision tree and generally "
-                "outperforms linear methods on tabular environmental data with non-linear interactions.",
-             fg=TXT_SECONDARY, font=("Segoe UI", 9))
+        kv(b, "Algorithm",         "Random Forest (scikit-learn)")
+        kv(b, "n_estimators",      "100 decision trees")
+        kv(b, "max_depth",         "10  (prevents overfitting)")
+        kv(b, "min_samples_split", "10")
+        kv(b, "min_samples_leaf",  "5")
+        kv(b, "class_weight",      "balanced")
+        kv(b, "random_state",      "42  (reproducible)")
 
-        # ── Performance ───────────────────────────────────────────
         b = section("MODEL PERFORMANCE", "📈")
-        kv(b, "Test Accuracy",   "~77%   (realistic for noisy real-world-like data)")
-        kv(b, "F1-Score (macro)","~0.75–0.80")
-        kv(b, "ROC-AUC",         "~0.80–0.85")
-        kv(b, "5-Fold CV",       "Confirms generalisation — low variance across folds")
-        kv(b, "Overfitting gap", "Typically < 10%  (train accuracy vs test accuracy)")
-        para(b, "An accuracy of 75–80% is deliberately realistic. Perfect accuracy (100%) on this type of "
-                "dataset would indicate data leakage or trivially separable labels — not a better model.",
-             fg=TXT_SECONDARY, font=("Segoe UI", 9))
+        kv(b, "Test Accuracy",    "~77%   (realistic for noisy data)")
+        kv(b, "F1-Score (macro)", "~0.75–0.80")
+        kv(b, "ROC-AUC",          "~0.80–0.85")
+        kv(b, "5-Fold CV",        "Low variance across folds")
 
-        # ── Evaluation metrics ────────────────────────────────────
-        b = section("EVALUATION METRICS EXPLAINED", "🔬")
-        metrics_info = [
-            ("Accuracy",         "% of predictions that are correct overall."),
-            ("F1-Score (macro)", "Harmonic mean of precision & recall, averaged across classes."),
-            ("Precision",        "Of all predicted landslides, how many were real?  (reduces false alarms)"),
-            ("Recall",           "Of all real landslides, how many did we catch?  (reduces missed events)"),
-            ("ROC-AUC",          "Model's ability to distinguish classes across all thresholds. 1.0 = perfect."),
-            ("Confusion Matrix", "Grid showing True Positives, True Negatives, False Positives, False Negatives."),
-            ("k-Fold CV",        "Dataset split into k parts; model trained k times to test stability."),
-        ]
-        for metric, desc in metrics_info:
-            row = tk.Frame(b, bg=BG_SURFACE, padx=12, pady=7)
-            row.pack(fill=tk.X, pady=3)
-            tk.Label(row, text=metric, bg=BG_SURFACE, fg=ACCENT_GREEN,
-                     font=("Courier", 10, "bold"), width=22, anchor='w').pack(side=tk.LEFT)
-            tk.Label(row, text=desc, bg=BG_SURFACE, fg=TXT_SECONDARY,
-                     font=("Segoe UI", 9), anchor='w', wraplength=700).pack(side=tk.LEFT, padx=(6,0))
-
-        # ── Model comparison ──────────────────────────────────────
-        b = section("MODEL COMPARISON", "🏆")
-        para(b, "The system trains four classifiers side-by-side so you can compare their performance:")
-        comp_info = [
-            ("Random Forest",      "Main model. Best AUC. Handles non-linearities & feature interactions well."),
-            ("Decision Tree",      "Single-tree baseline. Interpretable but prone to overfitting."),
-            ("Logistic Regression","Linear baseline. Fast and robust but assumes linear decision boundary."),
-            ("SVM",                "Kernel-based. Good on small datasets; slower on large ones."),
-        ]
-        for name, desc in comp_info:
-            row = tk.Frame(b, bg=BG_SURFACE, padx=12, pady=7)
-            row.pack(fill=tk.X, pady=3)
-            tk.Label(row, text=f"  {name}", bg=BG_SURFACE, fg=ACCENT_AMBER,
-                     font=("Segoe UI", 10, "bold"), width=24, anchor='w').pack(side=tk.LEFT)
-            tk.Label(row, text=desc, bg=BG_SURFACE, fg=TXT_SECONDARY,
-                     font=("Segoe UI", 9), anchor='w', wraplength=700).pack(side=tk.LEFT, padx=(6,0))
-
-        # ── Risk levels ───────────────────────────────────────────
         b = section("RISK CLASSIFICATION THRESHOLDS", "⚠")
-        risk_info = [
-            ("🟢  LOW RISK",      "< 40% probability",   "Conditions are relatively safe.",                         ACCENT_GREEN),
-            ("🟡  MODERATE RISK", "40% – 70% probability","Caution advised; monitor conditions closely.",            ACCENT_AMBER),
-            ("🔴  HIGH RISK",     "> 70% probability",   "Danger — immediate assessment or evacuation may be needed.", ACCENT_RED),
-        ]
-        for lvl, thresh, advice, clr in risk_info:
+        for lvl, thresh, advice, clr in [
+            ("🟢  LOW RISK",      "< 40%",    "Conditions are relatively safe.",        ACCENT_GREEN),
+            ("🟡  MODERATE RISK", "40%–70%",  "Caution advised; monitor closely.",      ACCENT_AMBER),
+            ("🔴  HIGH RISK",     "> 70%",    "Danger — immediate assessment needed.",  ACCENT_RED),
+        ]:
             row = tk.Frame(b, bg=BG_SURFACE, padx=12, pady=8)
             row.pack(fill=tk.X, pady=3)
             tk.Label(row, text=lvl,    bg=BG_SURFACE, fg=clr,
                      font=("Courier", 10, "bold"), width=20, anchor='w').pack(side=tk.LEFT)
             tk.Label(row, text=thresh, bg=BG_SURFACE, fg=TXT_SECONDARY,
-                     font=("Segoe UI", 9), width=22, anchor='w').pack(side=tk.LEFT)
+                     font=("Segoe UI", 9), width=12, anchor='w').pack(side=tk.LEFT)
             tk.Label(row, text=advice, bg=BG_SURFACE, fg=TXT_PRIMARY,
-                     font=("Segoe UI", 9), anchor='w', wraplength=600).pack(side=tk.LEFT, padx=(8,0))
+                     font=("Segoe UI", 9), anchor='w', wraplength=600).pack(side=tk.LEFT, padx=(8, 0))
 
-        # ── How to use ────────────────────────────────────────────
-        b = section("HOW TO USE THIS APPLICATION", "📖")
-        steps = [
-            ("1.  TRAIN tab",    "Click ▶ RUN PIPELINE to generate data, train the model, and evaluate it."),
-            ("2.  PREDICT tab",  "Adjust the sliders (or type values in the boxes), then click 🔍 PREDICT."),
-            ("3.  RESULTS tab",  "View confusion matrix, ROC curve, feature importances, and model comparison."),
-            ("4.  About tab",    "You're here! Read model documentation and interpret the outputs."),
-        ]
-        for step, desc in steps:
+        b = section("HOW TO USE", "📖")
+        for step, desc in [
+            ("1.  TRAIN tab",   "Click ▶ RUN PIPELINE to generate data and train."),
+            ("2.  PREDICT tab", "Adjust sliders / toggles, then click 🔍 PREDICT."),
+            ("3.  RESULTS tab", "View confusion matrix, ROC curve, and more."),
+            ("4.  About tab",   "Documentation (you're here)."),
+        ]:
             row = tk.Frame(b, bg=BG_SURFACE, padx=12, pady=8)
             row.pack(fill=tk.X, pady=3)
             tk.Label(row, text=step, bg=BG_SURFACE, fg=ACCENT_CYAN,
                      font=("Segoe UI", 10, "bold"), width=18, anchor='w').pack(side=tk.LEFT)
             tk.Label(row, text=desc, bg=BG_SURFACE, fg=TXT_SECONDARY,
-                     font=("Segoe UI", 9), anchor='w', wraplength=700).pack(side=tk.LEFT, padx=(8,0))
+                     font=("Segoe UI", 9), anchor='w', wraplength=700).pack(side=tk.LEFT, padx=(8, 0))
 
-        # ── Footer ────────────────────────────────────────────────
         footer = tk.Frame(scroll_frame, bg=BG_DARK, pady=20)
         footer.pack(fill=tk.X, padx=20)
         tk.Label(footer,
@@ -1664,22 +1405,15 @@ class LandslideApp(tk.Tk):
 
 def run_cli():
     matplotlib.use('Agg')
-    print("\n" + "═"*62)
+    print("\n" + "═" * 62)
     print("  LANDSLIDE PREDICTION SYSTEM — CLI MODE")
-    print("═"*62)
-
+    print("═" * 62)
     p = LandslidePredictor()
-    print("\n[1/5] Loading data...")
-    print(p.load_data())
-    print("\n[2/5] Preprocessing...")
-    print(p.preprocess())
-    print("\n[3/5] Training model...")
-    print(p.train(tune='--tune' in sys.argv))
-    print("\n[4/5] Evaluating...")
-    print(p.evaluate())
-    print("\n[5/5] Comparing models...")
-    print(p.compare_models())
-
+    print("\n[1/5] Loading data...");    print(p.load_data())
+    print("\n[2/5] Preprocessing...");  print(p.preprocess())
+    print("\n[3/5] Training...");        print(p.train('--tune' in sys.argv))
+    print("\n[4/5] Evaluating...");     print(p.evaluate())
+    print("\n[5/5] Comparing models..."); print(p.compare_models())
     p.save()
     m = p.metrics
     plot_confusion_matrix(m.confusion_mat,         show=False)
@@ -1690,7 +1424,7 @@ def run_cli():
     plot_class_distribution(p.df,                  show=False)
     plot_all_metrics_dashboard(p,                  show=False)
     print(f"\n  ✔ All plots saved to '{RESULTS_DIR}/'")
-    print("═"*62)
+    print("═" * 62)
 
 
 # ══════════════════════════════════════════════════════════════════
