@@ -1,0 +1,15 @@
+{
+  "feature_names": [
+    "Rainfall_mm",
+    "Slope_Angle",
+    "Soil_Saturation",
+    "Vegetation_Cover",
+    "Earthquake_Activity",
+    "Proximity_to_Water",
+    "Soil_Type_Gravel",
+    "Soil_Type_Sand",
+    "Soil_Type_Silt",
+    "Random_Noise"
+  ],
+  "target": "Landslide"
+}
