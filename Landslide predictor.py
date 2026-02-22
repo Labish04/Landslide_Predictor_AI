@@ -216,6 +216,30 @@ class LandslidePredictor:
         log.append(f"  ✔ Features         : {self.feature_names}")
         return "\n".join(log)
 
+    # ── Save Cleaned Dataset ────────────────────────────────────────
+    def save_cleaned_dataset(self, path: str = "landslide_dataset_cleaned.csv") -> str:
+        """Save the cleaned/preprocessed dataset (after imputation & deduplication) to CSV."""
+        if self.df is None:
+            return "  ✘ No dataset loaded. Run load_data() first."
+        if not hasattr(self, 'X_all') or self.X_all is None:
+            return "  ✘ Data not preprocessed. Run preprocess() first."
+
+        # Reconstruct full cleaned DataFrame
+        cleaned_df = self.X_all.copy()
+        cleaned_df[TARGET_COLUMN] = self.y_all.values
+
+        # Add a Split column so you can tell train vs test rows apart
+        split_labels = pd.Series('train', index=cleaned_df.index)
+        split_labels.loc[self.X_test.index] = 'test'
+        cleaned_df['Split'] = split_labels
+
+        cleaned_df.to_csv(path, index=False)
+        return (
+            f"  ✔ Cleaned dataset saved → '{path}'\n"
+            f"  ✔ Shape   : {cleaned_df.shape[0]} rows × {cleaned_df.shape[1]} columns\n"
+            f"  ✔ Columns : {list(cleaned_df.columns)}"
+        )
+
     # ── Training ────────────────────────────────────────────────────
     def train(self, tune: bool = False) -> str:
         log = []
@@ -933,6 +957,12 @@ class LandslideApp(tk.Tk):
                     self._log(f"  {'━'*52}")
                     self._log(fn())
 
+                # Save cleaned dataset after preprocessing
+                self._log(f"\n  {'━'*52}")
+                self._log("  SAVING CLEANED DATASET")
+                self._log(f"  {'━'*52}")
+                self._log(self.predictor.save_cleaned_dataset())
+
                 self.predictor.save()
                 self._log(f"\n  ✔ Model saved → {MODEL_FILE}")
 
@@ -1411,6 +1441,7 @@ def run_cli():
     p = LandslidePredictor()
     print("\n[1/5] Loading data...");    print(p.load_data())
     print("\n[2/5] Preprocessing...");  print(p.preprocess())
+    print("\n      Saving cleaned data..."); print(p.save_cleaned_dataset())
     print("\n[3/5] Training...");        print(p.train('--tune' in sys.argv))
     print("\n[4/5] Evaluating...");     print(p.evaluate())
     print("\n[5/5] Comparing models..."); print(p.compare_models())
