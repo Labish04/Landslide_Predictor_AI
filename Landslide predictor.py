@@ -301,6 +301,32 @@ class LandslidePredictor:
                f"  CV Fold Scores: {[f'{s:.4f}' for s in cv_scores]}"]
         return "\n".join(log)
 
+    # ── Depth Comparison ────────────────────────────────────────────
+    def compare_depths(self) -> dict:
+        depths = [3, 5, 8, 10, 15, 20]
+        results = {}
+        for d in depths:
+            clf = RandomForestClassifier(
+                n_estimators=100,
+                max_depth=d,
+                min_samples_split=10,
+                min_samples_leaf=5,
+                class_weight='balanced',
+                random_state=RANDOM_STATE
+            )
+            clf.fit(self.X_train, self.y_train)
+            y_pred = clf.predict(self.X_test)
+            y_prob = clf.predict_proba(self.X_test)[:, 1]
+            fpr, tpr, _ = roc_curve(self.y_test, y_prob)
+            label = str(d)
+            results[label] = {
+                'train_acc': accuracy_score(self.y_train, clf.predict(self.X_train)),
+                'test_acc' : accuracy_score(self.y_test, y_pred),
+                'f1'       : f1_score(self.y_test, y_pred, average='macro'),
+                'roc_auc'  : auc(fpr, tpr),
+            }
+        return results
+
     def save(self):
         joblib.dump(self.model, MODEL_FILE)
         meta = {'feature_names': self.feature_names, 'target': TARGET_COLUMN}
@@ -410,6 +436,56 @@ def plot_train_test_comparison(train_acc, test_acc, show=True):
         _save_and_show(fig, 'train_test_comparison.png', 'Train vs Test')
     else:
         fig.savefig(f'{RESULTS_DIR}/train_test_comparison.png', dpi=150, bbox_inches='tight')
+        plt.close(fig)
+
+
+def plot_depth_comparison(results: dict, show=True):
+    labels     = list(results.keys())
+    train_accs = [results[d]['train_acc'] * 100 for d in labels]
+    test_accs  = [results[d]['test_acc']  * 100 for d in labels]
+    f1s        = [results[d]['f1']        * 100 for d in labels]
+    aucs       = [results[d]['roc_auc']   * 100 for d in labels]
+
+    x = np.arange(len(labels))
+    fig, axes = plt.subplots(1, 2, figsize=(12, 4))
+    fig.suptitle('Random Forest — Tree Depth Comparison', fontweight='bold', fontsize=13)
+
+    # Left: Train vs Test accuracy per depth
+    ax = axes[0]
+    w = 0.35
+    ax.bar(x - w/2, train_accs, w, label='Train Acc', color='#22C55E', edgecolor='white')
+    ax.bar(x + w/2, test_accs,  w, label='Test Acc',  color='#3B82F6', edgecolor='white')
+    for i, (tr, te) in enumerate(zip(train_accs, test_accs)):
+        ax.text(i - w/2, tr + 0.3, f'{tr:.1f}', ha='center', fontsize=7, color='#22C55E')
+        ax.text(i + w/2, te + 0.3, f'{te:.1f}', ha='center', fontsize=7, color='#3B82F6')
+    ax.set_xticks(x)
+    ax.set_xticklabels([f'depth={d}' for d in labels], fontsize=8, rotation=15)
+    ax.set_ylim(50, 112)
+    ax.set_ylabel('Accuracy (%)')
+    ax.set_title('Train vs Test Accuracy by Depth', fontweight='bold')
+    ax.legend(fontsize=9)
+    ax.grid(axis='y', alpha=0.3)
+
+    # Right: F1 and AUC per depth
+    ax2 = axes[1]
+    ax2.plot(labels, f1s,  marker='o', color='#F59E0B', linewidth=2, label='F1 (macro %)')
+    ax2.plot(labels, aucs, marker='s', color='#EF4444', linewidth=2, label='ROC-AUC (%)')
+    for i, (f, a) in enumerate(zip(f1s, aucs)):
+        ax2.text(i, f + 0.4,  f'{f:.1f}',  ha='center', fontsize=7, color='#F59E0B')
+        ax2.text(i, a - 1.2,  f'{a:.1f}',  ha='center', fontsize=7, color='#EF4444')
+    ax2.set_xticks(range(len(labels)))
+    ax2.set_xticklabels([f'depth={d}' for d in labels], fontsize=8, rotation=15)
+    ax2.set_ylim(50, 105)
+    ax2.set_ylabel('Score (%)')
+    ax2.set_title('F1 & ROC-AUC by Depth', fontweight='bold')
+    ax2.legend(fontsize=9)
+    ax2.grid(alpha=0.3)
+
+    plt.tight_layout()
+    if show:
+        _save_and_show(fig, 'depth_comparison.png', 'Depth Comparison')
+    else:
+        fig.savefig(f'{RESULTS_DIR}/depth_comparison.png', dpi=150, bbox_inches='tight')
         plt.close(fig)
 
 
@@ -1209,6 +1285,7 @@ class LandslideApp(tk.Tk):
             ("Train vs Test",       lambda: plot_train_test_comparison(
                                         self.predictor.metrics.train_accuracy,
                                         self.predictor.metrics.accuracy)),
+            ("Depth Comparison",    lambda: plot_depth_comparison(self.predictor.compare_depths())),
             ("Class Distribution",  lambda: plot_class_distribution(self.predictor.df)),
             ("Full Dashboard",      lambda: plot_all_metrics_dashboard(self.predictor)),
         ]
