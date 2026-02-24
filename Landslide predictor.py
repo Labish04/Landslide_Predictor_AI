@@ -107,7 +107,6 @@ class LandslidePredictor:
         self.scaler        = None
         self.feature_names = []
         self.metrics       = ModelMetrics()
-        self.comparison    = {}
         self.df            = None
         self.X_test        = None
         self.y_test        = None
@@ -302,43 +301,6 @@ class LandslidePredictor:
                f"  CV Fold Scores: {[f'{s:.4f}' for s in cv_scores]}"]
         return "\n".join(log)
 
-    # ── Comparative Analysis ────────────────────────────────────────
-    def compare_models(self) -> str:
-        log = []
-        scaler  = StandardScaler()
-        X_tr_sc = scaler.fit_transform(self.X_train)
-        X_te_sc = scaler.transform(self.X_test)
-
-        models = {
-            'Random Forest'     : (RandomForestClassifier(n_estimators=100, max_depth=10,
-                                    min_samples_leaf=5, class_weight='balanced',
-                                    random_state=RANDOM_STATE), False),
-            'Decision Tree'     : (DecisionTreeClassifier(max_depth=8, min_samples_leaf=5,
-                                    class_weight='balanced', random_state=RANDOM_STATE), False),
-            'Logistic Regression': (LogisticRegression(max_iter=1000, random_state=RANDOM_STATE), True),
-            'SVM'               : (SVC(probability=True, random_state=RANDOM_STATE), True),
-        }
-
-        log.append(f"\n  {'Model':<22} {'Accuracy':>9} {'F1':>9} {'AUC':>9}")
-        log.append(f"  {'-'*22} {'-'*9} {'-'*9} {'-'*9}")
-        self.comparison = {}
-        for name, (mdl, scaled) in models.items():
-            Xtr = X_tr_sc if scaled else self.X_train.values
-            Xte = X_te_sc if scaled else self.X_test.values
-            mdl.fit(Xtr, self.y_train)
-            preds = mdl.predict(Xte)
-            probs = mdl.predict_proba(Xte)[:, 1]
-            _fpr, _tpr, _ = roc_curve(self.y_test, probs)
-            _auc = auc(_fpr, _tpr)
-            self.comparison[name] = {
-                'accuracy': accuracy_score(self.y_test, preds),
-                'f1'      : f1_score(self.y_test, preds, average='macro'),
-                'roc_auc' : _auc,
-            }
-            log.append(f"  {name:<22} {self.comparison[name]['accuracy']:>9.4f} "
-                       f"{self.comparison[name]['f1']:>9.4f} {_auc:>9.4f}")
-        return "\n".join(log)
-
     def save(self):
         joblib.dump(self.model, MODEL_FILE)
         meta = {'feature_names': self.feature_names, 'target': TARGET_COLUMN}
@@ -448,32 +410,6 @@ def plot_train_test_comparison(train_acc, test_acc, show=True):
         _save_and_show(fig, 'train_test_comparison.png', 'Train vs Test')
     else:
         fig.savefig(f'{RESULTS_DIR}/train_test_comparison.png', dpi=150, bbox_inches='tight')
-        plt.close(fig)
-
-
-def plot_model_comparison(comparison: dict, show=True):
-    if not comparison:
-        return
-    names = list(comparison.keys())
-    accs  = [comparison[n]['accuracy'] * 100 for n in names]
-    f1s   = [comparison[n]['f1'] * 100 for n in names]
-    aucs  = [comparison[n]['roc_auc'] * 100 for n in names]
-
-    x = np.arange(len(names))
-    fig, ax = plt.subplots(figsize=(8, 4))
-    w = 0.25
-    ax.bar(x - w, accs, w, label='Accuracy', color='#3B82F6', edgecolor='white')
-    ax.bar(x,     f1s,  w, label='F1 (macro)', color='#22C55E', edgecolor='white')
-    ax.bar(x + w, aucs, w, label='ROC-AUC', color='#F59E0B', edgecolor='white')
-    ax.set_xticks(x); ax.set_xticklabels(names, fontsize=9)
-    ax.set_ylim(50, 105); ax.set_ylabel('Score (%)')
-    ax.set_title('Model Comparison', fontweight='bold', fontsize=13)
-    ax.legend(); ax.grid(axis='y', alpha=0.3)
-    plt.tight_layout()
-    if show:
-        _save_and_show(fig, 'model_comparison.png', 'Model Comparison')
-    else:
-        fig.savefig(f'{RESULTS_DIR}/model_comparison.png', dpi=150, bbox_inches='tight')
         plt.close(fig)
 
 
@@ -949,11 +885,10 @@ class LandslideApp(tk.Tk):
                     ("PREPROCESSING",              lambda: self.predictor.preprocess()),
                     ("MODEL TRAINING",             lambda: self.predictor.train(tune=self.tune_var.get())),
                     ("EVALUATION & METRICS",       lambda: self.predictor.evaluate()),
-                    ("COMPARATIVE MODEL ANALYSIS", lambda: self.predictor.compare_models()),
                 ]
                 for i, (title, fn) in enumerate(steps, 1):
                     self._log(f"\n  {'━'*52}")
-                    self._log(f"  STEP {i}/5 — {title}")
+                    self._log(f"  STEP {i}/4 — {title}")
                     self._log(f"  {'━'*52}")
                     self._log(fn())
 
@@ -971,7 +906,6 @@ class LandslideApp(tk.Tk):
                 plot_roc_curve(m.fpr, m.tpr, m.roc_auc,        show=False)
                 plot_feature_importance(m.feature_importances,  show=False)
                 plot_train_test_comparison(m.train_accuracy, m.accuracy, show=False)
-                plot_model_comparison(self.predictor.comparison, show=False)
                 plot_class_distribution(self.predictor.df,      show=False)
                 plot_all_metrics_dashboard(self.predictor,      show=False)
                 self._log(f"  ✔ All plots saved → {RESULTS_DIR}/\n")
@@ -1275,7 +1209,6 @@ class LandslideApp(tk.Tk):
             ("Train vs Test",       lambda: plot_train_test_comparison(
                                         self.predictor.metrics.train_accuracy,
                                         self.predictor.metrics.accuracy)),
-            ("Model Comparison",    lambda: plot_model_comparison(self.predictor.comparison)),
             ("Class Distribution",  lambda: plot_class_distribution(self.predictor.df)),
             ("Full Dashboard",      lambda: plot_all_metrics_dashboard(self.predictor)),
         ]
@@ -1439,19 +1372,17 @@ def run_cli():
     print("  LANDSLIDE PREDICTION SYSTEM — CLI MODE")
     print("═" * 62)
     p = LandslidePredictor()
-    print("\n[1/5] Loading data...");    print(p.load_data())
-    print("\n[2/5] Preprocessing...");  print(p.preprocess())
+    print("\n[1/4] Loading data...");    print(p.load_data())
+    print("\n[2/4] Preprocessing...");  print(p.preprocess())
     print("\n      Saving cleaned data..."); print(p.save_cleaned_dataset())
-    print("\n[3/5] Training...");        print(p.train('--tune' in sys.argv))
-    print("\n[4/5] Evaluating...");     print(p.evaluate())
-    print("\n[5/5] Comparing models..."); print(p.compare_models())
+    print("\n[3/4] Training...");        print(p.train('--tune' in sys.argv))
+    print("\n[4/4] Evaluating...");     print(p.evaluate())
     p.save()
     m = p.metrics
     plot_confusion_matrix(m.confusion_mat,         show=False)
     plot_roc_curve(m.fpr, m.tpr, m.roc_auc,       show=False)
     plot_feature_importance(m.feature_importances, show=False)
     plot_train_test_comparison(m.train_accuracy, m.accuracy, show=False)
-    plot_model_comparison(p.comparison,            show=False)
     plot_class_distribution(p.df,                  show=False)
     plot_all_metrics_dashboard(p,                  show=False)
     print(f"\n  ✔ All plots saved to '{RESULTS_DIR}/'")
